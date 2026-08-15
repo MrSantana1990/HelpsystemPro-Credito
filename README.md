@@ -164,6 +164,23 @@ O protótipo utiliza **React**, **TypeScript** e **Vite**. A arquitetura de prod
 - [`Regras de negócio`](docs/REGRAS-DE-NEGOCIO.md)
 - [`Arquitetura inicial`](docs/ARQUITETURA.md)
 - [`Roadmap`](docs/ROADMAP.md)
+- [`Roteiro para apresentação`](docs/APRESENTACAO.md)
+
+## ✅ Qualidade automatizada
+
+O núcleo financeiro inicial usa valores em **centavos inteiros**, evitando erros comuns de arredondamento com dinheiro. A suíte cobre cálculo de juros, distribuição de pagamentos, excedentes, renovação e datas.
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+O GitHub Actions executa essas três verificações automaticamente em toda alteração enviada à `main` ou proposta por pull request.
+
+### Atalho no Windows
+
+Execute `INICIAR_PROTOTIPO.bat` para instalar o necessário na primeira utilização e abrir a demonstração no navegador.
 
 ---
 
@@ -173,4 +190,3 @@ O protótipo utiliza **React**, **TypeScript** e **Vite**. A arquitetura de prod
 Tecnologia para transformar controle em confiança.
 
 </div>
-
