@@ -260,6 +260,42 @@ describe("API operacional", () => {
     });
     expect((await request("/payments")).payments.length).toBeGreaterThan(0);
     expect((await request("/renewals")).renewals.length).toBeGreaterThan(0);
+    const partnerSummary = (await request("/partners/summary")).partners[0];
+    expect(partnerSummary).toMatchObject({ name: "Rodrigo", contract_count: expect.any(Number) });
+    expect(partnerSummary.capital_deployed_cents).toBeGreaterThan(0);
+    expect(partnerSummary.interest_received_cents).toBeGreaterThan(0);
+    const invite = await request(`/partners/${partnerSummary.id}/invites`, {
+      method: "POST",
+      body: JSON.stringify({ phone: "11988887777" }),
+    });
+    expect(invite.whatsappUrl).toContain("wa.me/5511988887777");
+    const inviteToken = new URL(invite.publicUrl).pathname.split("/").pop();
+    expect(await request(`/onboarding/${inviteToken}`)).toMatchObject({ partnerName: "Rodrigo" });
+    const onboardingForm = new FormData();
+    onboardingForm.set("name", "Cliente convidado");
+    onboardingForm.set("document", "98765432100");
+    onboardingForm.set("phone", "11988887777");
+    onboardingForm.set("birthDate", "1990-01-10");
+    onboardingForm.set("occupation", "Analista");
+    onboardingForm.set("address", "Rua do Teste, 100");
+    onboardingForm.set("preferredPaymentWindow", "dia_15");
+    onboardingForm.set("incomeType", "clt");
+    onboardingForm.set("declaredIncomeCents", "350000");
+    onboardingForm.set("consent", "true");
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    onboardingForm.set("identity", new Blob([png], { type: "image/png" }), "cnh.png");
+    onboardingForm.set("addressProof", new Blob([png], { type: "image/png" }), "endereco.png");
+    onboardingForm.set("incomeProof", new Blob([png], { type: "image/png" }), "holerite.png");
+    const submitted = await request(`/onboarding/${inviteToken}`, { method: "POST", body: onboardingForm });
+    expect(submitted).toMatchObject({ status: "submitted" });
+    expect((await request(`/clients/${submitted.clientId}/documents`)).documents).toHaveLength(3);
+    const clientAccess = await request(`/clients/${client.id}/access-link`, { method: "POST" });
+    expect(clientAccess.publicUrl).toContain("/cliente/");
+    expect(clientAccess.whatsappUrl).toContain("wa.me/5511999990000");
+    const clientToken = new URL(clientAccess.publicUrl).pathname.split("/").pop();
+    const clientPortal = await request(`/client-portal/${clientToken}`);
+    expect(clientPortal.client).toMatchObject({ id: client.id, name: "Cliente Integração Atualizado" });
+    expect(clientPortal.contracts.length).toBeGreaterThan(0);
 
     const paidForNewRequest = await request("/contracts", {
       method: "POST",

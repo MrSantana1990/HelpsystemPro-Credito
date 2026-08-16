@@ -33,6 +33,7 @@ const upload = multer({
     callback(null, /\.(xlsx|xlsm)$/i.test(file.originalname)),
 });
 const documentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+const onboardingUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 3 } });
 
 function encryptionKey() {
   const value = process.env.APP_ENCRYPTION_KEY || "";
@@ -849,6 +850,10 @@ app.post(
     const rate = Number(req.body.interestRate);
     const term = positiveInteger(req.body.termDays || 30, "Prazo");
     const startDate = cleanText(req.body.startDate, 10, true);
+    const partnerId = req.body.partnerId
+      ? positiveInteger(Number(req.body.partnerId), "Parceiro")
+      : db.prepare("SELECT id FROM partners WHERE active = 1 ORDER BY id LIMIT 1").get()?.id;
+    if (!partnerId) throw new Error("Nenhum credor/parceiro ativo foi encontrado.");
     if (
       !db
         .prepare("SELECT id FROM clients WHERE id = ? AND active = 1")
@@ -860,10 +865,11 @@ app.post(
     const id = transaction(() => {
       const contract = db
         .prepare(
-          `INSERT INTO contracts (client_id, principal_cents, interest_rate, term_days, start_date, due_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO contracts (client_id, partner_id, principal_cents, interest_rate, term_days, start_date, due_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           clientId,
+          partnerId,
           principal,
           rate,
           term,
@@ -890,6 +896,159 @@ app.post(
     });
   }),
 );
+
+app.get("/api/partners/summary", requireAuth, (_req, res) => {
+  const partners = db.prepare("SELECT * FROM partners WHERE active = 1 ORDER BY name").all().map((partner) => {
+    const totals = db.prepare(`SELECT
+      COUNT(*) AS contract_count,
+      COUNT(DISTINCT client_id) AS client_count,
+      COALESCE(SUM(principal_cents), 0) AS capital_deployed_cents,
+      COALESCE(SUM(CASE WHEN status = 'open' THEN principal_cents - COALESCE((SELECT SUM(principal_cents) FROM payments WHERE contract_id = contracts.id AND reversed_at IS NULL), 0) ELSE 0 END), 0) AS capital_open_cents,
+      SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS paid_contracts,
+      SUM(CASE WHEN status = 'renegotiated' THEN 1 ELSE 0 END) AS renegotiated_contracts,
+      SUM(CASE WHEN status = 'open' AND due_date < date('now') THEN 1 ELSE 0 END) AS overdue_contracts
+      FROM contracts WHERE partner_id = ?`).get(partner.id);
+    const receipts = db.prepare(`SELECT
+      COALESCE(SUM(payments.interest_cents), 0) AS interest_received_cents,
+      COALESCE(SUM(payments.fee_cents), 0) AS fees_received_cents,
+      COALESCE(SUM(payments.principal_cents), 0) AS principal_recovered_cents
+      FROM payments JOIN contracts ON contracts.id = payments.contract_id
+      WHERE contracts.partner_id = ? AND payments.reversed_at IS NULL`).get(partner.id);
+    const projected = db.prepare(`SELECT COALESCE(SUM(cycles.interest_cents - COALESCE((SELECT SUM(interest_cents) FROM payments WHERE cycle_id = cycles.id AND reversed_at IS NULL), 0)), 0) AS projected_interest_cents
+      FROM cycles JOIN contracts ON contracts.id = cycles.contract_id WHERE contracts.partner_id = ? AND cycles.status = 'open'`).get(partner.id);
+    const repeatClients = db.prepare("SELECT COUNT(*) AS total FROM (SELECT client_id FROM contracts WHERE partner_id = ? GROUP BY client_id HAVING COUNT(*) > 1)").get(partner.id).total;
+    const realizedProfitCents = receipts.interest_received_cents + receipts.fees_received_cents;
+    return {
+      ...partner, ...totals, ...receipts, ...projected,
+      realized_profit_cents: realizedProfitCents,
+      realized_margin_percent: totals.capital_deployed_cents ? Math.round((realizedProfitCents / totals.capital_deployed_cents) * 10_000) / 100 : 0,
+      repeat_clients: repeatClients,
+      recurrence_percent: totals.client_count ? Math.round((repeatClients / totals.client_count) * 10_000) / 100 : 0,
+    };
+  });
+  res.json({ partners });
+});
+
+app.post("/api/partners/:id/invites", requireAuth, handle((req, res) => {
+  const partnerId = positiveInteger(Number(req.params.id), "Parceiro");
+  const partner = db.prepare("SELECT id, name FROM partners WHERE id = ? AND active = 1").get(partnerId);
+  if (!partner) throw new Error("Parceiro não encontrado.");
+  const phone = String(req.body.phone || "").replace(/\D/g, "");
+  if (phone.length < 10 || phone.length > 13) throw new Error("WhatsApp inválido.");
+  const token = createSessionToken();
+  const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+  const inserted = db.prepare("INSERT INTO onboarding_invites (partner_id, token_hash, phone, expires_at, created_by) VALUES (?, ?, ?, ?, ?)")
+    .run(partnerId, hashToken(token), phone, expiresAt, req.user.id);
+  const publicUrl = `${appOrigin || `http://127.0.0.1:${port}`}/cadastro/${token}`;
+  const whatsappPhone = phone.startsWith("55") ? phone : `55${phone}`;
+  const message = `Olá! ${partner.name} enviou um convite seguro para seu cadastro e análise. Preencha seus dados e documentos neste link válido por 72 horas: ${publicUrl}`;
+  audit(req.user.id, "onboarding_invite.created", "onboarding_invite", Number(inserted.lastInsertRowid), { partnerId, phoneLast4: phone.slice(-4), expiresAt });
+  res.status(201).json({ id: Number(inserted.lastInsertRowid), publicUrl, whatsappUrl: `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}`, expiresAt });
+}));
+
+app.post("/api/clients/:id/access-link", requireAuth, handle((req, res) => {
+  const clientId = positiveInteger(Number(req.params.id), "Cliente");
+  const client = db.prepare("SELECT id, name, phone FROM clients WHERE id = ? AND active = 1").get(clientId);
+  if (!client) throw new Error("Cliente não encontrado.");
+  const token = createSessionToken();
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare("UPDATE client_access_links SET active = 0 WHERE client_id = ?").run(clientId);
+  db.prepare("INSERT INTO client_access_links (client_id, token_hash, expires_at, created_by) VALUES (?, ?, ?, ?)")
+    .run(clientId, hashToken(token), expiresAt, req.user.id);
+  const publicUrl = `${appOrigin || `http://127.0.0.1:${port}`}/cliente/${token}`;
+  const phone = String(client.phone || "").replace(/\D/g, "");
+  const whatsappPhone = phone ? (phone.startsWith("55") ? phone : `55${phone}`) : "";
+  const message = `Olá, ${client.name}! Acesse sua área segura para acompanhar contratos e solicitações: ${publicUrl}`;
+  audit(req.user.id, "client_access.created", "client", clientId, { expiresAt });
+  res.status(201).json({ publicUrl, whatsappUrl: whatsappPhone ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}` : "", expiresAt });
+}));
+
+function clientByAccessToken(token) {
+  return db.prepare(`SELECT clients.*, client_access_links.id AS access_id, client_access_links.created_by AS access_created_by
+    FROM client_access_links JOIN clients ON clients.id = client_access_links.client_id
+    WHERE client_access_links.token_hash = ? AND client_access_links.active = 1
+      AND client_access_links.expires_at > ? AND clients.active = 1`).get(hashToken(token), new Date().toISOString());
+}
+
+app.get("/api/client-portal/:token", handle((req, res) => {
+  const client = clientByAccessToken(req.params.token);
+  if (!client) throw new Error("Acesso inválido ou expirado. Solicite um novo link.");
+  db.prepare("UPDATE client_access_links SET last_accessed_at = CURRENT_TIMESTAMP WHERE id = ?").run(client.access_id);
+  const contracts = db.prepare(`SELECT contracts.id, contracts.principal_cents, contracts.interest_rate, contracts.start_date,
+    contracts.due_date, contracts.status,
+    MAX(contracts.principal_cents - COALESCE((SELECT SUM(principal_cents) FROM payments WHERE contract_id = contracts.id AND reversed_at IS NULL), 0), 0) AS balance_principal_cents,
+    COALESCE((SELECT interest_cents - COALESCE((SELECT SUM(interest_cents) FROM payments WHERE cycle_id = cycles.id AND reversed_at IS NULL), 0) FROM cycles WHERE contract_id = contracts.id AND status = 'open' ORDER BY cycle_number DESC LIMIT 1), 0) AS current_interest_cents
+    FROM contracts WHERE contracts.client_id = ? GROUP BY contracts.id ORDER BY contracts.start_date DESC, contracts.id DESC`).all(client.id);
+  const requests = db.prepare("SELECT id, source_contract_id, requested_cents, requested_at, preferred_window, purpose, status, decision_note FROM loan_requests WHERE client_id = ? ORDER BY created_at DESC").all(client.id);
+  const eligibleContracts = db.prepare(`SELECT contracts.id, contracts.principal_cents, MAX(payments.payment_date) AS paid_at
+    FROM contracts JOIN payments ON payments.contract_id = contracts.id AND payments.reversed_at IS NULL
+    LEFT JOIN loan_requests ON loan_requests.source_contract_id = contracts.id
+    WHERE contracts.client_id = ? AND contracts.status = 'paid' AND loan_requests.id IS NULL
+    GROUP BY contracts.id ORDER BY paid_at DESC`).all(client.id);
+  res.json({ client: { id: client.id, name: client.name, preferredPaymentWindow: client.preferred_payment_window }, contracts, requests, eligibleContracts });
+}));
+
+app.post("/api/client-portal/:token/loan-requests", handle((req, res) => {
+  const client = clientByAccessToken(req.params.token);
+  if (!client) throw new Error("Acesso inválido ou expirado. Solicite um novo link.");
+  const sourceContractId = positiveInteger(Number(req.body.sourceContractId), "Contrato quitado");
+  const eligible = db.prepare(`SELECT contracts.id FROM contracts LEFT JOIN loan_requests ON loan_requests.source_contract_id = contracts.id
+    WHERE contracts.id = ? AND contracts.client_id = ? AND contracts.status = 'paid' AND loan_requests.id IS NULL`).get(sourceContractId, client.id);
+  if (!eligible) throw new Error("Este contrato não está disponível para uma nova solicitação.");
+  const requestedCents = positiveInteger(Number(req.body.requestedCents), "Valor solicitado");
+  const preferredWindow = cleanText(req.body.preferredWindow, 20) || client.preferred_payment_window || "flexivel";
+  if (!["dia_15", "fim_mes", "flexivel"].includes(preferredWindow)) throw new Error("Data preferida inválida.");
+  const inserted = db.prepare(`INSERT INTO loan_requests (client_id, source_contract_id, requested_cents, requested_at, preferred_window, purpose, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(client.id, sourceContractId, requestedCents, new Date().toISOString().slice(0, 10), preferredWindow, cleanText(req.body.purpose, 500), client.access_created_by);
+  audit(null, "client_portal.loan_request", "loan_request", Number(inserted.lastInsertRowid), { clientId: client.id, sourceContractId });
+  res.status(201).json({ id: Number(inserted.lastInsertRowid), status: "pending" });
+}));
+
+app.get("/api/onboarding/:token", handle((req, res) => {
+  const invite = db.prepare(`SELECT onboarding_invites.id, onboarding_invites.status, onboarding_invites.expires_at, partners.name AS partner_name
+    FROM onboarding_invites JOIN partners ON partners.id = onboarding_invites.partner_id
+    WHERE onboarding_invites.token_hash = ?`).get(hashToken(req.params.token));
+  if (!invite || invite.status !== "pending" || Date.parse(invite.expires_at) < Date.now()) throw new Error("Convite inválido, expirado ou já utilizado.");
+  res.json({ partnerName: invite.partner_name, expiresAt: invite.expires_at, requiredDocuments: ["RG ou CNH", "Comprovante de endereço", "Comprovante de renda"] });
+}));
+
+app.post("/api/onboarding/:token", onboardingUpload.fields([{ name: "identity", maxCount: 1 }, { name: "addressProof", maxCount: 1 }, { name: "incomeProof", maxCount: 1 }]), (req, res) => {
+  try {
+    const invite = db.prepare("SELECT * FROM onboarding_invites WHERE token_hash = ? AND status = 'pending'").get(hashToken(req.params.token));
+    if (!invite || Date.parse(invite.expires_at) < Date.now()) throw new Error("Convite inválido, expirado ou já utilizado.");
+    if (req.body.consent !== "true") throw new Error("É necessário confirmar a ciência sobre o uso dos dados.");
+    const name = cleanText(req.body.name, 120, true);
+    const document = cleanText(req.body.document, 30, true);
+    const incomeType = cleanText(req.body.incomeType, 30, true);
+    if (!["clt", "autonomo", "beneficio", "empresario", "outro"].includes(incomeType)) throw new Error("Origem da renda inválida.");
+    const declaredIncomeCents = positiveInteger(Number(req.body.declaredIncomeCents), "Remuneração");
+    if (db.prepare("SELECT id FROM clients WHERE document = ? AND active = 1").get(document)) throw new Error("CPF já cadastrado. Entre em contato com o responsável.");
+    const files = req.files || {};
+    const required = [["identity", "identidade"], ["addressProof", "endereco"], ["incomeProof", "renda"]];
+    for (const [field] of required) if (!files[field]?.[0]) throw new Error("Identidade, endereço e renda são obrigatórios.");
+    const result = transaction(() => {
+      const clientResult = db.prepare(`INSERT INTO clients
+        (name, document, phone, birth_date, occupation, address, preferred_payment_window, credit_analysis_consent_at, income_type, declared_income_cents, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(name, document, cleanText(req.body.phone, 30) || invite.phone, cleanText(req.body.birthDate, 10), cleanText(req.body.occupation, 120), cleanText(req.body.address, 300), cleanText(req.body.preferredPaymentWindow, 20) || "flexivel", new Date().toISOString(), incomeType, declaredIncomeCents, "Cadastro enviado pelo convite seguro do parceiro.");
+      const clientId = Number(clientResult.lastInsertRowid);
+      for (const [field, type] of required) {
+        const file = files[field][0];
+        const mimeType = detectedDocumentMime(file.buffer);
+        if (!mimeType) throw new Error("Um dos documentos não é PDF, JPG ou PNG válido.");
+        const { encrypted, iv, authTag } = encryptDocument(file.buffer);
+        db.prepare(`INSERT INTO client_documents (client_id, document_type, original_name, mime_type, size_bytes, encrypted_data, iv, auth_tag, uploaded_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(clientId, type, cleanText(file.originalname, 180, true), mimeType, file.size, encrypted, iv, authTag, invite.created_by);
+      }
+      db.prepare("UPDATE onboarding_invites SET status = 'submitted', client_id = ?, submitted_at = CURRENT_TIMESTAMP WHERE id = ?").run(clientId, invite.id);
+      audit(invite.created_by, "onboarding.submitted", "client", clientId, { inviteId: invite.id, partnerId: invite.partner_id, incomeType });
+      return clientId;
+    });
+    res.status(201).json({ clientId: result, status: "submitted", message: "Cadastro enviado para análise. Nenhum empréstimo foi aprovado automaticamente." });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Não foi possível enviar o cadastro." });
+  }
+});
 
 app.post(
   "/api/contracts/:id/payments",
@@ -1124,10 +1283,11 @@ app.post(
       ).run(contractId);
       const next = db
         .prepare(
-          `INSERT INTO contracts (client_id, parent_contract_id, principal_cents, interest_rate, term_days, start_date, due_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO contracts (client_id, partner_id, parent_contract_id, principal_cents, interest_rate, term_days, start_date, due_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           contract.client_id,
+          contract.partner_id,
           contractId,
           newPrincipal,
           newRate,

@@ -45,9 +45,14 @@ import {
   EligiblePaidContract,
   RiskProfile,
   ClientDocument,
+  PartnerSummary,
+  PartnerInvite,
+  ClientAccessLink,
   Settings as SystemSettings,
   User,
 } from "./api";
+import { OnboardingPage } from "./OnboardingPage";
+import { ClientPortal } from "./ClientPortal";
 
 type Modal =
   | "client"
@@ -59,6 +64,7 @@ type Modal =
   | "score"
   | "loanRequests"
   | "documents"
+  | "partners"
   | "contract"
   | "payment"
   | "renegotiate"
@@ -254,6 +260,10 @@ function Sidebar({
           <Handshake size={19} />
           <span>Solicitações</span>
         </button>
+        <button onClick={() => { onNavigate("partners"); close(); }}>
+          <WalletCards size={19} />
+          <span>Parceiros e lucro</span>
+        </button>
         <p>SEGURANÇA</p>
         <button onClick={onBackup}>
           <DatabaseBackup size={19} />
@@ -340,14 +350,19 @@ function App() {
   const [loanRequests, setLoanRequests] = useState<LoanRequest[]>([]);
   const [eligiblePaidContracts, setEligiblePaidContracts] = useState<EligiblePaidContract[]>([]);
   const [paymentContractId, setPaymentContractId] = useState<number | null>(null);
-  const [paymentIntent, setPaymentIntent] = useState<"regular" | "payoff">("regular");
+  const [paymentIntent, setPaymentIntent] = useState<"regular" | "payoff" | "interest">("regular");
   const [documentClientId, setDocumentClientId] = useState<number | null>(null);
   const [clientDocuments, setClientDocuments] = useState<ClientDocument[]>([]);
+  const [partnerSummaries, setPartnerSummaries] = useState<PartnerSummary[]>([]);
+  const [partnerInvite, setPartnerInvite] = useState<PartnerInvite | null>(null);
+  const [clientAccessLink, setClientAccessLink] = useState<ClientAccessLink | null>(null);
   const [modal, setModal] = useState<Modal>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const onboardingMatch = window.location.pathname.match(/^\/cadastro\/([^/]+)$/);
+  const clientPortalMatch = window.location.pathname.match(/^\/cliente\/([^/]+)$/);
 
   const notify = (message: string) => {
     setToast(message);
@@ -366,6 +381,7 @@ function App() {
       setLoanRequests(data.requests);
       setEligiblePaidContracts(data.eligibleContracts);
     }
+    if (target === "partners") setPartnerSummaries((await api.partnerSummary()).partners);
     setModal(target);
   };
   const loadData = useCallback(async () => {
@@ -417,6 +433,22 @@ function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function createPartnerInvite(event: FormEvent<HTMLFormElement>, partnerId: number) {
+    event.preventDefault();
+    setBusy(true); setError(""); setPartnerInvite(null);
+    const form = new FormData(event.currentTarget);
+    try { setPartnerInvite(await api.createPartnerInvite(partnerId, String(form.get("phone")))); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao gerar convite."); }
+    finally { setBusy(false); }
+  }
+
+  async function createClientAccess(clientId: number) {
+    setBusy(true); setError(""); setClientAccessLink(null);
+    try { setClientAccessLink(await api.createClientAccessLink(clientId)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao gerar acesso."); }
+    finally { setBusy(false); }
   }
   async function submitClientUpdate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -617,6 +649,7 @@ function App() {
       });
       await loadData();
       setModal(null);
+      setPaymentContractId(null);
       notify(
         `Novo contrato #${String(result.newContractId).padStart(4, "0")} criado até ${dateBr(result.newDueDate)}.`,
       );
@@ -816,12 +849,18 @@ function App() {
     () => contracts.find((item) => item.id === paymentContractId && item.status === "open") || contracts.find((item) => item.status === "open"),
     [contracts, paymentContractId],
   );
-  const openPayment = (contractId?: number, intent: "regular" | "payoff" = "regular") => {
+  const openPayment = (contractId?: number, intent: "regular" | "payoff" | "interest" = "regular") => {
     setPaymentContractId(contractId || null);
     setPaymentIntent(intent);
     setModal("payment");
   };
+  const openRenegotiation = (contractId: number) => {
+    setPaymentContractId(contractId);
+    setModal("renegotiate");
+  };
 
+  if (onboardingMatch) return <OnboardingPage token={onboardingMatch[1]} />;
+  if (clientPortalMatch) return <ClientPortal token={clientPortalMatch[1]} />;
   if (booting)
     return (
       <div className="boot">
@@ -1011,7 +1050,9 @@ function App() {
                           <td data-label="Ações">
                             <div className="contract-actions">
                               <button className="payoff-button" onClick={() => openPayment(contract.id, "payoff")}><CheckCircle2 />Quitar</button>
-                              <button className="more" onClick={() => openHistory(contract.id)} aria-label="Ver histórico"><Eye /></button>
+                              <button className="interest-button" onClick={() => openPayment(contract.id, "interest")}><CircleDollarSign />Juros</button>
+                              <button className="renegotiate-button" onClick={() => openRenegotiation(contract.id)}><Handshake />Renegociar</button>
+                              <button className="history-button" onClick={() => openHistory(contract.id)}><Eye />Histórico</button>
                             </div>
                           </td>
                         </tr>
@@ -1042,6 +1083,11 @@ function App() {
                 <button onClick={() => void navigate("loanRequests")}>
                   <span className="q-blue"><Handshake /></span>
                   <div><strong>Nova solicitação</strong><small>Disponível após quitação individual</small></div>
+                  <ChevronRight />
+                </button>
+                <button onClick={() => void navigate("partners")}>
+                  <span className="q-green"><WalletCards /></span>
+                  <div><strong>Resultado do parceiro</strong><small>Capital, lucro, margem e risco</small></div>
                   <ChevronRight />
                 </button>
                 <button
@@ -1313,11 +1359,37 @@ function App() {
           </div>
         </Dialog>
       )}
+      {modal === "partners" && (
+        <Dialog title="Parceiros e rentabilidade" subtitle="Visão do credor sobre capital, resultado, recorrência e risco." close={() => { setModal(null); setPartnerInvite(null); setError(""); }}>
+          <div className="history-body">
+            {partnerSummaries.map((partner) => <section className="partner-card" key={partner.id}>
+              <div className="partner-heading"><div><span>CREDOR / FORNECEDOR</span><h3>{partner.name}</h3></div><div className="partner-profit"><span>LUCRO REALIZADO</span><strong>{money(partner.realized_profit_cents)}</strong></div></div>
+              <div className="partner-metrics">
+                <div><span>Capital aplicado</span><strong>{money(partner.capital_deployed_cents)}</strong></div>
+                <div><span>Capital em aberto</span><strong>{money(partner.capital_open_cents)}</strong></div>
+                <div><span>Juros recebidos</span><strong>{money(partner.interest_received_cents)}</strong></div>
+                <div><span>Juros projetados</span><strong>{money(partner.projected_interest_cents)}</strong></div>
+                <div><span>Margem realizada</span><strong>{partner.realized_margin_percent.toFixed(2)}%</strong></div>
+                <div><span>Clientes reincidentes</span><strong>{partner.repeat_clients} · {partner.recurrence_percent.toFixed(0)}%</strong></div>
+              </div>
+              <div className="risk-strip"><span><CheckCircle2 />{partner.paid_contracts} quitados</span><span><RefreshCw />{partner.renegotiated_contracts} renegociados</span><span className={partner.overdue_contracts ? "danger" : ""}><AlertTriangle />{partner.overdue_contracts} vencidos</span></div>
+              <form className="partner-invite" onSubmit={(event) => void createPartnerInvite(event, partner.id)}>
+                <div><strong>Convidar novo cliente</strong><small>Gera um link individual válido por 72 horas.</small></div>
+                <input name="phone" type="tel" inputMode="tel" placeholder="WhatsApp com DDD" required />
+                <button className="primary-action" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <Plus />}Gerar convite</button>
+              </form>
+              {partnerInvite && <div className="invite-result"><span>Convite pronto e protegido</span><input readOnly value={partnerInvite.publicUrl} /><a href={partnerInvite.whatsappUrl} target="_blank" rel="noreferrer">Abrir WhatsApp e enviar</a></div>}
+              {error && <div className="form-error">{error}</div>}
+            </section>)}
+            {!partnerSummaries.length && <div className="empty compact"><WalletCards /><span>Nenhum parceiro cadastrado.</span></div>}
+          </div>
+        </Dialog>
+      )}
       {modal === "clients" && (
         <Dialog
           title="Clientes"
           subtitle="Consulte e corrija cadastros sem alterar contratos."
-          close={() => { setModal(null); setEditingClientId(null); setError(""); }}
+          close={() => { setModal(null); setEditingClientId(null); setClientAccessLink(null); setError(""); }}
         >
           {!editingClientId ? (
             <div className="history-body">
@@ -1328,11 +1400,14 @@ function App() {
                     <div className="payment-actions">
                       <button className="receipt-button" onClick={() => void openRiskProfile(client.id)}><ShieldCheck />Risco</button>
                       <button className="receipt-button" onClick={() => void openDocuments(client.id)}><FileCheck2 />Dossiê</button>
+                      <button className="receipt-button" disabled={busy} onClick={() => void createClientAccess(client.id)}><Eye />Área cliente</button>
                       <button className="receipt-button" onClick={() => setEditingClientId(client.id)}>Editar</button>
                     </div>
                   </article>
                 ))}
               </div>
+              {clientAccessLink && <div className="invite-result"><span>Acesso do tomador pronto por 30 dias</span><input readOnly value={clientAccessLink.publicUrl} /><div className="access-link-actions"><a href={clientAccessLink.publicUrl} target="_blank" rel="noreferrer">Visualizar área do cliente</a>{clientAccessLink.whatsappUrl && <a href={clientAccessLink.whatsappUrl} target="_blank" rel="noreferrer">Enviar por WhatsApp</a>}</div></div>}
+              {error && <div className="form-error">{error}</div>}
               <div className="dialog-actions"><button type="button" onClick={() => setModal(null)}>Fechar</button><button className="primary-action" onClick={() => setModal("client")}><Plus />Novo cliente</button></div>
             </div>
           ) : (() => {
@@ -1522,8 +1597,8 @@ function App() {
       )}
       {modal === "payment" && selectedForPayment && (
         <Dialog
-          title={paymentIntent === "payoff" ? "Quitar contrato" : "Registrar pagamento"}
-          subtitle={paymentIntent === "payoff" ? "Confira o total calculado antes de encerrar o contrato." : "O sistema aplica em multa, juros e principal, nessa ordem."}
+          title={paymentIntent === "payoff" ? "Quitar contrato" : paymentIntent === "interest" ? "Pagar juros e renovar" : "Registrar pagamento"}
+          subtitle={paymentIntent === "payoff" ? "Confira o total calculado antes de encerrar o contrato." : paymentIntent === "interest" ? "Quita os encargos do ciclo, preserva o principal e abre mais 30 dias." : "O sistema aplica em multa, juros e principal, nessa ordem."}
           close={() => {
             setModal(null);
             setPaymentContractId(null);
@@ -1560,7 +1635,7 @@ function App() {
                   step="0.01"
                   required
                   autoFocus
-                  defaultValue={paymentIntent === "payoff" ? ((selectedForPayment.balance_principal_cents + selectedForPayment.current_interest_cents + selectedForPayment.current_fee_cents) / 100).toFixed(2) : undefined}
+                  defaultValue={paymentIntent === "payoff" ? ((selectedForPayment.balance_principal_cents + selectedForPayment.current_interest_cents + selectedForPayment.current_fee_cents) / 100).toFixed(2) : paymentIntent === "interest" ? ((selectedForPayment.current_interest_cents + selectedForPayment.current_fee_cents) / 100).toFixed(2) : undefined}
                 />
               </label>
               <label>
@@ -1583,7 +1658,7 @@ function App() {
               </select>
             </label>
             {paymentIntent !== "payoff" && <label className="check-label">
-              <input name="renew" type="checkbox" />
+              <input name="renew" type="checkbox" defaultChecked={paymentIntent === "interest"} />
               <span>
                 <strong>Renovar por mais 30 dias</strong>
                 <small>
@@ -1601,7 +1676,7 @@ function App() {
                 Cancelar
               </button>
               <button className="primary-action" disabled={busy}>
-                {busy && <LoaderCircle className="spin" />}{paymentIntent === "payoff" ? "Confirmar quitação" : "Confirmar pagamento"}
+                {busy && <LoaderCircle className="spin" />}{paymentIntent === "payoff" ? "Confirmar quitação" : paymentIntent === "interest" ? "Confirmar juros e renovação" : "Confirmar pagamento"}
               </button>
             </div>
           </form>
@@ -1613,6 +1688,7 @@ function App() {
           subtitle="Quita encargos pendentes, encerra o contrato atual e cria outro vinculado."
           close={() => {
             setModal(null);
+            setPaymentContractId(null);
             setError("");
           }}
         >
