@@ -148,11 +148,30 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS loan_requests (
+    id INTEGER PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    source_contract_id INTEGER NOT NULL UNIQUE REFERENCES contracts(id),
+    requested_cents INTEGER NOT NULL CHECK(requested_cents > 0),
+    requested_at TEXT NOT NULL,
+    preferred_window TEXT NOT NULL CHECK(preferred_window IN ('dia_15', 'fim_mes', 'flexivel')),
+    purpose TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected', 'contracted', 'cancelled')),
+    decision_note TEXT,
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    decided_by INTEGER REFERENCES users(id),
+    decided_at TEXT,
+    created_contract_id INTEGER REFERENCES contracts(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE INDEX IF NOT EXISTS idx_contracts_client ON contracts(client_id);
   CREATE INDEX IF NOT EXISTS idx_contracts_due ON contracts(due_date);
   CREATE INDEX IF NOT EXISTS idx_payments_contract ON payments(contract_id);
   CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
   CREATE INDEX IF NOT EXISTS idx_credit_assessments_client ON credit_assessments(client_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_loan_requests_status ON loan_requests(status, requested_at);
 `);
 db.prepare("INSERT OR IGNORE INTO settings (id) VALUES (1)").run();
 

@@ -242,5 +242,51 @@ describe("API operacional", () => {
     });
     expect((await request("/payments")).payments.length).toBeGreaterThan(0);
     expect((await request("/renewals")).renewals.length).toBeGreaterThan(0);
+
+    const paidForNewRequest = await request("/contracts", {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: client.id,
+        principalCents: 20_000,
+        interestRate: 0.3,
+        termDays: 30,
+        startDate: "2026-10-01",
+      }),
+    });
+    const payoff = await request(`/contracts/${paidForNewRequest.id}/payments`, {
+      method: "POST",
+      body: JSON.stringify({
+        amountCents: 26_000,
+        paymentDate: "2026-10-31",
+        method: "pix",
+        renew: false,
+      }),
+    });
+    expect(payoff.paid).toBe(true);
+    expect((await request("/loan-requests")).eligibleContracts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: paidForNewRequest.id })]),
+    );
+    const loanRequest = await request("/loan-requests", {
+      method: "POST",
+      body: JSON.stringify({
+        sourceContractId: paidForNewRequest.id,
+        requestedCents: 50_000,
+        requestedAt: "2026-11-15",
+        preferredWindow: "dia_15",
+        purpose: "Nova necessidade após quitação individual.",
+      }),
+    });
+    expect(loanRequest).toMatchObject({ status: "pending" });
+    expect(await request(`/loan-requests/${loanRequest.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "approved", decisionNote: "Histórico conferido." }),
+    })).toMatchObject({ status: "approved" });
+    const requestList = await request("/loan-requests");
+    expect(requestList.requests[0]).toMatchObject({
+      source_contract_id: paidForNewRequest.id,
+      preferred_window: "dia_15",
+      status: "approved",
+    });
+    expect(requestList.eligibleContracts.some((item) => item.id === paidForNewRequest.id)).toBe(false);
   });
 });

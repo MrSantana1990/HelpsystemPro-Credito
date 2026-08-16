@@ -44,6 +44,7 @@ Por trás dessa simplicidade, o produto manterá lançamentos financeiros, vínc
 - dashboard responsivo para computador e celular;
 - menus operacionais de clientes, contratos, pagamentos, renovações e comprovantes;
 - score interno explicável, com faixa de risco e limite recomendado por cliente;
+- solicitações de novo empréstimo liberadas por quitação individual, com preferência de pagamento no dia 15 ou no final do mês;
 - Docker, documentação operacional e validação automática no GitHub.
 
 > O núcleo é operacional para uma empresa e uma instância. Antes de cadastrar dados reais na internet, conclua o [`checklist de produção`](docs/CHECKLIST-PRODUCAO.md), faça a validação jurídica e mantenha o acesso privado ou protegido por uma segunda camada de autenticação.
