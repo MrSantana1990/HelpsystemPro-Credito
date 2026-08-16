@@ -41,6 +41,8 @@ import {
   PaymentListItem,
   RenewalListItem,
   CreditAssessment,
+  LoanRequest,
+  EligiblePaidContract,
   Settings as SystemSettings,
   User,
 } from "./api";
@@ -53,6 +55,7 @@ type Modal =
   | "renewals"
   | "receipts"
   | "score"
+  | "loanRequests"
   | "contract"
   | "payment"
   | "renegotiate"
@@ -244,6 +247,10 @@ function Sidebar({
           <ReceiptText size={19} />
           <span>Comprovantes</span>
         </button>
+        <button onClick={() => { onNavigate("loanRequests"); close(); }}>
+          <Handshake size={19} />
+          <span>Solicitações</span>
+        </button>
         <p>SEGURANÇA</p>
         <button onClick={onBackup}>
           <DatabaseBackup size={19} />
@@ -326,6 +333,8 @@ function App() {
   const [scoreResult, setScoreResult] = useState<CreditAssessment | null>(null);
   const [paymentList, setPaymentList] = useState<PaymentListItem[]>([]);
   const [renewalList, setRenewalList] = useState<RenewalListItem[]>([]);
+  const [loanRequests, setLoanRequests] = useState<LoanRequest[]>([]);
+  const [eligiblePaidContracts, setEligiblePaidContracts] = useState<EligiblePaidContract[]>([]);
   const [modal, setModal] = useState<Modal>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -343,6 +352,11 @@ function App() {
     }
     if (target === "renewals") {
       setRenewalList((await api.renewals()).renewals);
+    }
+    if (target === "loanRequests") {
+      const data = await api.loanRequests();
+      setLoanRequests(data.requests);
+      setEligiblePaidContracts(data.eligibleContracts);
     }
     setModal(target);
   };
@@ -482,7 +496,9 @@ function App() {
       notify(
         result.nextDueDate
           ? `Renovado até ${dateBr(result.nextDueDate)}.`
-          : "Pagamento registrado com sucesso.",
+          : result.paid
+            ? "Contrato quitado. Uma nova solicitação já pode ser registrada."
+            : "Pagamento registrado com sucesso.",
       );
     } catch (reason) {
       setError(
@@ -492,6 +508,42 @@ function App() {
       );
     } finally {
       setBusy(false);
+    }
+  }
+  async function submitLoanRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    setBusy(true);
+    setError("");
+    const data = new FormData(event.currentTarget);
+    try {
+      await api.createLoanRequest({
+        sourceContractId: Number(data.get("sourceContractId")),
+        requestedCents: toCents(data.get("requested")),
+        requestedAt: data.get("requestedAt"),
+        preferredWindow: data.get("preferredWindow"),
+        purpose: data.get("purpose"),
+      });
+      const updated = await api.loanRequests();
+      setLoanRequests(updated.requests);
+      setEligiblePaidContracts(updated.eligibleContracts);
+      notify("Nova solicitação registrada e vinculada à quitação.");
+      form.reset();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha ao registrar solicitação.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function decideLoanRequest(id: number, status: "approved" | "rejected" | "cancelled") {
+    try {
+      await api.decideLoanRequest(id, { status });
+      const updated = await api.loanRequests();
+      setLoanRequests(updated.requests);
+      setEligiblePaidContracts(updated.eligibleContracts);
+      notify(status === "approved" ? "Solicitação aprovada." : "Solicitação atualizada.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha ao atualizar solicitação.");
     }
   }
   async function submitRenegotiation(event: FormEvent<HTMLFormElement>) {
@@ -1138,6 +1190,46 @@ function App() {
               <article key={payment.id}><div><strong>{payment.client_name} · {money(payment.amount_cents)}</strong><small>{dateBr(payment.payment_date)} · código {payment.receiptCode}</small></div><button className="receipt-button" onClick={() => printReceipt(payment.id)}><Printer />Emitir</button></article>
             )) : <div className="empty compact"><ReceiptText /><span>Nenhum comprovante disponível.</span></div>}
           </div><div className="dialog-actions"><button onClick={() => setModal(null)}>Fechar</button></div></div>
+        </Dialog>
+      )}
+      {modal === "loanRequests" && (
+        <Dialog title="Solicitações de empréstimo" subtitle="Cada solicitação nasce de um contrato individual quitado." close={() => { setModal(null); setError(""); }}>
+          <div className="history-body">
+            {eligiblePaidContracts.length ? (
+              <form className="dialog-form" onSubmit={submitLoanRequest}>
+                <div className="form-warning"><CheckCircle2 />Somente contratos quitados e ainda não utilizados aparecem abaixo.</div>
+                <label>Quitação que libera a solicitação
+                  <select name="sourceContractId" required>
+                    {eligiblePaidContracts.map((contract) => <option key={contract.id} value={contract.id}>#{String(contract.id).padStart(4, "0")} · {contract.client_name} · {money(contract.principal_cents)}</option>)}
+                  </select>
+                </label>
+                <div className="form-row">
+                  <label>Valor solicitado<input name="requested" inputMode="decimal" required placeholder="Ex.: 1.000,00" /></label>
+                  <label>Data da solicitação<input name="requestedAt" type="date" defaultValue={today()} required /></label>
+                </div>
+                <label>Preferência para pagamento
+                  <select name="preferredWindow" defaultValue="flexivel">
+                    <option value="dia_15">Dia 15</option>
+                    <option value="fim_mes">Final do mês (30 ou 31)</option>
+                    <option value="flexivel">Flexível</option>
+                  </select>
+                </label>
+                <label>Finalidade ou observação<input name="purpose" maxLength={500} placeholder="Opcional" /></label>
+                {error && <div className="form-error">{error}</div>}
+                <div className="dialog-actions"><button className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" />}Registrar solicitação</button></div>
+              </form>
+            ) : <div className="empty compact"><Handshake /><span>Nenhuma quitação disponível para uma nova solicitação.</span></div>}
+            <h3>Histórico de solicitações</h3>
+            <div className="history-list">
+              {loanRequests.length ? loanRequests.map((request) => (
+                <article key={request.id}>
+                  <div><strong>{request.client_name} · {money(request.requested_cents)}</strong><small>{dateBr(request.requested_at)} · contrato quitado #{request.source_contract_id} · {request.preferred_window === "dia_15" ? "dia 15" : request.preferred_window === "fim_mes" ? "final do mês" : "flexível"} · {request.status}</small></div>
+                  {request.status === "pending" && <div className="payment-actions"><button className="receipt-button" onClick={() => void decideLoanRequest(request.id, "approved")}>Aprovar</button><button className="receipt-button" onClick={() => void decideLoanRequest(request.id, "rejected")}>Recusar</button></div>}
+                </article>
+              )) : <div className="empty compact"><Handshake /><span>Nenhuma solicitação registrada.</span></div>}
+            </div>
+            <div className="dialog-actions"><button onClick={() => setModal(null)}>Fechar</button></div>
+          </div>
         </Dialog>
       )}
       {modal === "clients" && (

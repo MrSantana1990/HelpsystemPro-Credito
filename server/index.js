@@ -534,6 +534,67 @@ app.get("/api/renewals", requireAuth, (_req, res) => {
   res.json({ renewals });
 });
 
+app.get("/api/loan-requests", requireAuth, (_req, res) => {
+  const requests = db.prepare(`
+    SELECT loan_requests.*, clients.name AS client_name,
+      contracts.legacy_reference AS source_legacy_reference,
+      contracts.principal_cents AS source_principal_cents
+    FROM loan_requests
+    JOIN clients ON clients.id = loan_requests.client_id
+    JOIN contracts ON contracts.id = loan_requests.source_contract_id
+    ORDER BY loan_requests.requested_at DESC, loan_requests.id DESC
+  `).all();
+  const eligibleContracts = db.prepare(`
+    SELECT contracts.id, contracts.client_id, clients.name AS client_name,
+      contracts.principal_cents, contracts.updated_at AS paid_at
+    FROM contracts JOIN clients ON clients.id = contracts.client_id
+    LEFT JOIN loan_requests ON loan_requests.source_contract_id = contracts.id
+    WHERE contracts.status = 'paid' AND loan_requests.id IS NULL
+    ORDER BY contracts.updated_at DESC, contracts.id DESC
+  `).all();
+  res.json({ requests, eligibleContracts });
+});
+
+app.post(
+  "/api/loan-requests",
+  requireAuth,
+  handle((req, res) => {
+    const sourceContractId = positiveInteger(req.body.sourceContractId, "Contrato quitado");
+    const requestedCents = positiveInteger(req.body.requestedCents, "Valor solicitado");
+    const requestedAt = cleanText(req.body.requestedAt, 10, true);
+    const preferredWindow = cleanText(req.body.preferredWindow, 20, true);
+    if (!["dia_15", "fim_mes", "flexivel"].includes(preferredWindow)) {
+      throw new Error("Janela de pagamento inválida.");
+    }
+    const source = db.prepare("SELECT id, client_id FROM contracts WHERE id = ? AND status = 'paid'").get(sourceContractId);
+    if (!source) throw new Error("A solicitação exige um contrato individual quitado.");
+    const result = db.prepare(`
+      INSERT INTO loan_requests
+        (client_id, source_contract_id, requested_cents, requested_at, preferred_window, purpose, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(source.client_id, sourceContractId, requestedCents, requestedAt, preferredWindow, cleanText(req.body.purpose, 500), req.user.id);
+    const id = Number(result.lastInsertRowid);
+    audit(req.user.id, "loan_request.created", "loan_request", id, { sourceContractId, requestedCents, preferredWindow });
+    res.status(201).json({ id, status: "pending" });
+  }),
+);
+
+app.patch(
+  "/api/loan-requests/:id",
+  requireAuth,
+  handle((req, res) => {
+    const id = positiveInteger(Number(req.params.id), "Solicitação");
+    const status = cleanText(req.body.status, 20, true);
+    if (!["approved", "rejected", "cancelled"].includes(status)) throw new Error("Decisão inválida.");
+    const current = db.prepare("SELECT * FROM loan_requests WHERE id = ? AND status = 'pending'").get(id);
+    if (!current) throw new Error("Solicitação pendente não encontrada.");
+    db.prepare(`UPDATE loan_requests SET status = ?, decision_note = ?, decided_by = ?, decided_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+      .run(status, cleanText(req.body.decisionNote, 500), req.user.id, id);
+    audit(req.user.id, `loan_request.${status}`, "loan_request", id, { decisionNote: cleanText(req.body.decisionNote, 500) });
+    res.json({ id, status });
+  }),
+);
+
 app.post(
   "/api/clients",
   requireAuth,
@@ -811,6 +872,7 @@ app.post(
         paymentId: Number(payment.lastInsertRowid),
         allocation,
         nextDueDate,
+        paid: !renew && allocation.toPrincipal === remainingPrincipal,
       };
     });
     res.status(201).json(result);

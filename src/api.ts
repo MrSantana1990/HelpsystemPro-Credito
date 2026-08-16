@@ -146,6 +146,25 @@ export interface CreditAssessment {
   riskBand: string;
   reasons: string[];
 }
+export interface LoanRequest {
+  id: number;
+  client_id: number;
+  client_name: string;
+  source_contract_id: number;
+  requested_cents: number;
+  requested_at: string;
+  preferred_window: "dia_15" | "fim_mes" | "flexivel";
+  purpose?: string;
+  status: "pending" | "approved" | "rejected" | "contracted" | "cancelled";
+  decision_note?: string;
+}
+export interface EligiblePaidContract {
+  id: number;
+  client_id: number;
+  client_name: string;
+  principal_cents: number;
+  paid_at: string;
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -192,6 +211,11 @@ export const api = {
   contracts: () => request<{ contracts: Contract[] }>("/contracts"),
   payments: () => request<{ payments: PaymentListItem[] }>("/payments"),
   renewals: () => request<{ renewals: RenewalListItem[] }>("/renewals"),
+  loanRequests: () => request<{ requests: LoanRequest[]; eligibleContracts: EligiblePaidContract[] }>("/loan-requests"),
+  createLoanRequest: (data: object) =>
+    request<{ id: number; status: string }>("/loan-requests", { method: "POST", body: JSON.stringify(data) }),
+  decideLoanRequest: (id: number, data: object) =>
+    request<{ id: number; status: string }>(`/loan-requests/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   assessCredit: (id: number, data: object) =>
     request<CreditAssessment>(`/clients/${id}/credit-assessments`, {
       method: "POST",
@@ -205,7 +229,7 @@ export const api = {
       totalCents: number;
     }>("/contracts", { method: "POST", body: JSON.stringify(data) }),
   pay: (id: number, data: object) =>
-    request<{ nextDueDate: string | null }>(`/contracts/${id}/payments`, {
+    request<{ nextDueDate: string | null; paid: boolean }>(`/contracts/${id}/payments`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
