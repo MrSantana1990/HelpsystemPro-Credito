@@ -54,5 +54,4 @@ WhatsApp, e-mail, SMS, Pix, assinatura e seguros serão adaptadores externos. Um
 
 ## Estado atual
 
-A versão `0.1.0` contém a interface demonstrativa em React/TypeScript. API, persistência e autenticação ainda não foram implementadas e não são simuladas como prontas.
-
+A versão operacional local contém interface React/TypeScript, API Express, autenticação por sessão, banco SQLite e trilha de auditoria. Importação da planilha, comprovantes em arquivo, recuperação assistida e autorização por múltiplas funções ainda estão em desenvolvimento.
