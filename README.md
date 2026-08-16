@@ -42,7 +42,7 @@ Por trás dessa simplicidade, o produto manterá lançamentos financeiros, vínc
 - documentação inicial do produto e das regras operacionais;
 - dados exclusivamente demonstrativos — nenhum cliente real foi publicado.
 
-> A interface atual é uma **demonstração funcional de experiência**. Os botões apresentam o comportamento planejado, mas ainda não persistem informações em banco de dados.
+> A versão atual inclui um **núcleo operacional local em evolução**, com autenticação, SQLite, clientes, contratos, pagamentos, renovação, auditoria e backup. Ela ainda deve ser validada com dados de teste antes da migração da base real.
 
 ## 🧭 Regra principal de experiência
 
@@ -148,7 +148,7 @@ O software será inicialmente posicionado como uma ferramenta de gestão. Integr
 
 ## 🧰 Fundação técnica
 
-O protótipo utiliza **React**, **TypeScript** e **Vite**. A arquitetura de produção será definida por etapas para evitar complexidade prematura, mas já está orientada a:
+O sistema utiliza **React**, **TypeScript**, **Vite**, **Node.js**, **Express** e **SQLite**. A arquitetura de produção será definida por etapas para evitar complexidade prematura, mas já está orientada a:
 
 - aplicação web responsiva/PWA;
 - API segura;

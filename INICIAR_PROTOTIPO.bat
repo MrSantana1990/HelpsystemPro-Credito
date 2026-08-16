@@ -21,7 +21,14 @@ if not exist "node_modules" (
   )
 )
 
-echo Abrindo HelpSystemPro Credito em http://localhost:5173
-start "" http://localhost:5173
-call npm run dev
+echo Validando e preparando a interface...
+call npm run build
+if errorlevel 1 (
+  echo A compilacao encontrou um problema. Consulte a mensagem acima.
+  pause
+  exit /b 1
+)
 
+echo Abrindo HelpSystemPro Credito em http://127.0.0.1:8091
+start "" http://127.0.0.1:8091
+call npm start
