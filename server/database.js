@@ -219,6 +219,20 @@ db.exec(`
     last_accessed_at TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS contract_action_requests (
+    id INTEGER PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    contract_id INTEGER NOT NULL REFERENCES contracts(id),
+    action_type TEXT NOT NULL CHECK(action_type IN ('payoff', 'interest_renewal', 'renegotiation')),
+    note TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'rejected', 'completed', 'cancelled')),
+    decision_note TEXT,
+    decided_by INTEGER REFERENCES users(id),
+    decided_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE INDEX IF NOT EXISTS idx_contracts_client ON contracts(client_id);
   CREATE INDEX IF NOT EXISTS idx_contracts_due ON contracts(due_date);
   CREATE INDEX IF NOT EXISTS idx_payments_contract ON payments(contract_id);
@@ -228,6 +242,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_client_documents_client ON client_documents(client_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_onboarding_invites_status ON onboarding_invites(status, expires_at);
   CREATE INDEX IF NOT EXISTS idx_client_access_links_client ON client_access_links(client_id, active, expires_at);
+  CREATE INDEX IF NOT EXISTS idx_contract_action_requests_status ON contract_action_requests(status, created_at);
 `);
 db.prepare("INSERT OR IGNORE INTO settings (id) VALUES (1)").run();
 db.prepare("INSERT OR IGNORE INTO partners (name, notes) VALUES ('Rodrigo', 'Credor principal da carteira original.')").run();

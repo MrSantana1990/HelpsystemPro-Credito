@@ -48,6 +48,7 @@ import {
   PartnerSummary,
   PartnerInvite,
   ClientAccessLink,
+  ContractActionRequest,
   Settings as SystemSettings,
   User,
 } from "./api";
@@ -65,6 +66,8 @@ type Modal =
   | "loanRequests"
   | "documents"
   | "partners"
+  | "invite"
+  | "clientRequests"
   | "contract"
   | "payment"
   | "renegotiate"
@@ -356,6 +359,7 @@ function App() {
   const [partnerSummaries, setPartnerSummaries] = useState<PartnerSummary[]>([]);
   const [partnerInvite, setPartnerInvite] = useState<PartnerInvite | null>(null);
   const [clientAccessLink, setClientAccessLink] = useState<ClientAccessLink | null>(null);
+  const [actionRequests, setActionRequests] = useState<ContractActionRequest[]>([]);
   const [modal, setModal] = useState<Modal>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -381,7 +385,8 @@ function App() {
       setLoanRequests(data.requests);
       setEligiblePaidContracts(data.eligibleContracts);
     }
-    if (target === "partners") setPartnerSummaries((await api.partnerSummary()).partners);
+    if (target === "partners" || target === "invite") setPartnerSummaries((await api.partnerSummary()).partners);
+    if (target === "clientRequests") setActionRequests((await api.actionRequests()).requests);
     setModal(target);
   };
   const loadData = useCallback(async () => {
@@ -448,6 +453,13 @@ function App() {
     setBusy(true); setError(""); setClientAccessLink(null);
     try { setClientAccessLink(await api.createClientAccessLink(clientId)); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao gerar acesso."); }
+    finally { setBusy(false); }
+  }
+
+  async function decideActionRequest(id: number, status: "accepted" | "rejected") {
+    setBusy(true); setError("");
+    try { await api.decideActionRequest(id, { status }); setActionRequests((await api.actionRequests()).requests); notify(status === "accepted" ? "Solicitação aceita. Conclua a operação no contrato." : "Solicitação recusada."); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao decidir."); }
     finally { setBusy(false); }
   }
   async function submitClientUpdate(event: FormEvent<HTMLFormElement>) {
@@ -908,6 +920,12 @@ function App() {
               <Bell size={20} />
             </button>
             <button
+              className="invite-header-action"
+              onClick={() => void navigate("invite")}
+            >
+              <Users size={18} /> Convidar cliente
+            </button>
+            <button
               className="primary-action"
               onClick={() =>
                 clients.length ? setModal("contract") : setModal("client")
@@ -1070,6 +1088,11 @@ function App() {
                 </div>
               </div>
               <div className="quick-grid">
+                <button className="quick-highlight" onClick={() => void navigate("invite")}>
+                  <span className="q-green"><Users /></span>
+                  <div><strong>Convidar novo cliente</strong><small>Enviar cadastro seguro pelo WhatsApp</small></div>
+                  <ChevronRight />
+                </button>
                 <button onClick={() => setModal("client")}>
                   <span className="q-blue">
                     <Users />
@@ -1083,6 +1106,11 @@ function App() {
                 <button onClick={() => void navigate("loanRequests")}>
                   <span className="q-blue"><Handshake /></span>
                   <div><strong>Nova solicitação</strong><small>Disponível após quitação individual</small></div>
+                  <ChevronRight />
+                </button>
+                <button onClick={() => void navigate("clientRequests")}>
+                  <span className="q-violet"><Bell /></span>
+                  <div><strong>Pedidos dos clientes</strong><small>Quitação, juros e renegociação</small></div>
                   <ChevronRight />
                 </button>
                 <button onClick={() => void navigate("partners")}>
@@ -1382,6 +1410,29 @@ function App() {
               {error && <div className="form-error">{error}</div>}
             </section>)}
             {!partnerSummaries.length && <div className="empty compact"><WalletCards /><span>Nenhum parceiro cadastrado.</span></div>}
+          </div>
+        </Dialog>
+      )}
+      {modal === "invite" && (
+        <Dialog title="Convidar novo cliente" subtitle="Envie pelo WhatsApp um cadastro individual, seguro e válido por 72 horas." close={() => { setModal(null); setPartnerInvite(null); setError(""); }}>
+          <form className="dialog-form invite-dialog" onSubmit={(event) => void createPartnerInvite(event, partnerSummaries[0]?.id || 0)}>
+            <div className="invite-explainer"><ShieldCheck /><div><strong>O cliente preenche pelo próprio celular</strong><small>RG ou CNH, comprovante de endereço e comprovante de renda são obrigatórios. O envio não aprova crédito automaticamente.</small></div></div>
+            <label>Fornecedor responsável<select name="partnerId" value={partnerSummaries[0]?.id || ""} disabled>{partnerSummaries.map((partner) => <option key={partner.id} value={partner.id}>{partner.name}</option>)}</select></label>
+            <label>WhatsApp do novo cliente<input name="phone" type="tel" inputMode="tel" placeholder="Ex.: 11999999999" required autoFocus /></label>
+            {partnerInvite && <div className="invite-result"><span>Convite pronto</span><input readOnly value={partnerInvite.publicUrl} /><a href={partnerInvite.whatsappUrl} target="_blank" rel="noreferrer">Abrir WhatsApp e enviar agora</a></div>}
+            {error && <div className="form-error">{error}</div>}
+            <div className="dialog-actions"><button type="button" onClick={() => setModal(null)}>Fechar</button><button className="primary-action" disabled={busy || !partnerSummaries.length}>{busy ? <LoaderCircle className="spin" /> : <Plus />}Gerar link seguro</button></div>
+          </form>
+        </Dialog>
+      )}
+      {modal === "clientRequests" && (
+        <Dialog title="Pedidos dos clientes" subtitle="Solicitações vindas da área do tomador. Aceitar não movimenta dinheiro automaticamente." close={() => { setModal(null); setError(""); }}>
+          <div className="history-body">
+            <div className="history-list">{actionRequests.length ? actionRequests.map((request) => <article key={request.id}>
+              <div><strong>{request.client_name} · contrato #{request.contract_id}</strong><small>{request.action_type === "payoff" ? "Solicitou quitação" : request.action_type === "interest_renewal" ? "Solicitou pagar juros e renovar" : "Solicitou renegociação"} · {request.status === "pending" ? "aguardando análise" : request.status}</small></div>
+              {request.status === "pending" && <div className="payment-actions"><button className="receipt-button" disabled={busy} onClick={() => void decideActionRequest(request.id, "accepted")}>Aceitar</button><button className="reverse-button" disabled={busy} onClick={() => void decideActionRequest(request.id, "rejected")}>Recusar</button></div>}
+            </article>) : <div className="empty compact"><Bell /><span>Nenhum pedido recebido.</span></div>}</div>
+            {error && <div className="form-error">{error}</div>}
           </div>
         </Dialog>
       )}

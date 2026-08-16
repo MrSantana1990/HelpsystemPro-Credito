@@ -296,6 +296,14 @@ describe("API operacional", () => {
     const clientPortal = await request(`/client-portal/${clientToken}`);
     expect(clientPortal.client).toMatchObject({ id: client.id, name: "Cliente Integração Atualizado" });
     expect(clientPortal.contracts.length).toBeGreaterThan(0);
+    const actionRequest = await request(`/client-portal/${clientToken}/action-requests`, {
+      method: "POST",
+      body: JSON.stringify({ contractId: overdue.id, actionType: "interest_renewal" }),
+    });
+    expect(actionRequest).toMatchObject({ status: "pending" });
+    const actionRequestList = await request("/action-requests");
+    expect(actionRequestList.requests[0]).toMatchObject({ id: actionRequest.id, client_name: "Cliente Integração Atualizado", action_type: "interest_renewal" });
+    expect(await request(`/action-requests/${actionRequest.id}`, { method: "PATCH", body: JSON.stringify({ status: "accepted" }) })).toMatchObject({ status: "accepted" });
 
     const paidForNewRequest = await request("/contracts", {
       method: "POST",
