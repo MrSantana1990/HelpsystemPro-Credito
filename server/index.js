@@ -488,6 +488,7 @@ app.get("/api/clients", requireAuth, (req, res) => {
     .prepare(
       `
     SELECT clients.*, COUNT(contracts.id) AS contract_count,
+      (SELECT GROUP_CONCAT(partners.name, ', ') FROM client_partner_links JOIN partners ON partners.id = client_partner_links.partner_id WHERE client_partner_links.client_id = clients.id) AS partner_names,
       (SELECT score FROM credit_assessments WHERE client_id = clients.id ORDER BY id DESC LIMIT 1) AS credit_score,
       (SELECT risk_band FROM credit_assessments WHERE client_id = clients.id ORDER BY id DESC LIMIT 1) AS risk_band,
       (SELECT recommended_limit_cents FROM credit_assessments WHERE client_id = clients.id ORDER BY id DESC LIMIT 1) AS recommended_limit_cents
@@ -804,13 +805,13 @@ app.get("/api/contracts", requireAuth, (req, res) => {
   const rows = db
     .prepare(
       `
-    SELECT contracts.*, clients.name AS client_name,
+    SELECT contracts.*, clients.name AS client_name, partners.name AS partner_name,
       COALESCE((SELECT SUM(principal_cents) FROM payments WHERE contract_id = contracts.id AND reversed_at IS NULL), 0) AS principal_paid_cents,
       (SELECT cycle_number FROM cycles WHERE contract_id = contracts.id ORDER BY cycle_number DESC LIMIT 1) AS current_cycle,
       COALESCE((SELECT MAX(0, cycles.interest_cents - COALESCE((SELECT SUM(payments.interest_cents) FROM payments WHERE payments.cycle_id = cycles.id AND payments.reversed_at IS NULL), 0)) FROM cycles WHERE cycles.contract_id = contracts.id AND cycles.status = 'open' ORDER BY cycles.cycle_number DESC LIMIT 1), 0) AS current_interest_cents,
       COALESCE((SELECT MAX(0, cycles.fee_cents - COALESCE((SELECT SUM(payments.fee_cents) FROM payments WHERE payments.cycle_id = cycles.id AND payments.reversed_at IS NULL), 0)) FROM cycles WHERE cycles.contract_id = contracts.id AND cycles.status = 'open' ORDER BY cycles.cycle_number DESC LIMIT 1), 0) AS current_fee_cents,
       COALESCE((SELECT COALESCE((SELECT SUM(payments.fee_cents) FROM payments WHERE payments.cycle_id = cycles.id AND payments.reversed_at IS NULL), 0) FROM cycles WHERE cycles.contract_id = contracts.id AND cycles.status = 'open' ORDER BY cycles.cycle_number DESC LIMIT 1), 0) AS current_fee_paid_cents
-    FROM contracts JOIN clients ON clients.id = contracts.client_id
+    FROM contracts JOIN clients ON clients.id = contracts.client_id LEFT JOIN partners ON partners.id = contracts.partner_id
     ORDER BY
       CASE WHEN contracts.legacy_reference GLOB '[0-9]*' THEN CAST(contracts.legacy_reference AS INTEGER) ELSE contracts.id END,
       contracts.id
@@ -883,6 +884,7 @@ app.post(
       ? positiveInteger(Number(req.body.partnerId), "Parceiro")
       : db.prepare("SELECT id FROM partners WHERE active = 1 ORDER BY id LIMIT 1").get()?.id;
     if (!partnerId) throw new Error("Nenhum credor/parceiro ativo foi encontrado.");
+    if (!db.prepare("SELECT id FROM partners WHERE id = ? AND active = 1").get(partnerId)) throw new Error("Credor/parceiro inválido.");
     if (
       !db
         .prepare("SELECT id FROM clients WHERE id = ? AND active = 1")
@@ -907,6 +909,7 @@ app.post(
           cleanText(req.body.notes, 1000),
         );
       const contractId = Number(contract.lastInsertRowid);
+      db.prepare("INSERT OR IGNORE INTO client_partner_links (client_id, partner_id, source) VALUES (?, ?, 'contract')").run(clientId, partnerId);
       db.prepare(
         `INSERT INTO cycles (contract_id, cycle_number, start_date, due_date, opening_principal_cents, interest_cents) VALUES (?, 1, ?, ?, ?, ?)`,
       ).run(contractId, startDate, dueDate, principal, interest);
@@ -925,6 +928,29 @@ app.post(
     });
   }),
 );
+
+app.get("/api/partners", requireAuth, (_req, res) => {
+  res.json({ partners: db.prepare("SELECT * FROM partners ORDER BY active DESC, name").all() });
+});
+
+app.post("/api/partners", requireAuth, handle((req, res) => {
+  const name = cleanText(req.body.name, 120, true);
+  const inserted = db.prepare("INSERT INTO partners (name, phone, notes) VALUES (?, ?, ?)").run(name, cleanText(req.body.phone, 30), cleanText(req.body.notes, 500));
+  const id = Number(inserted.lastInsertRowid);
+  audit(req.user.id, "partner.created", "partner", id, { name });
+  res.status(201).json({ id });
+}));
+
+app.patch("/api/partners/:id", requireAuth, handle((req, res) => {
+  const id = positiveInteger(Number(req.params.id), "Parceiro");
+  const name = cleanText(req.body.name, 120, true);
+  const active = req.body.active === false ? 0 : 1;
+  const updated = db.prepare("UPDATE partners SET name = ?, phone = ?, notes = ?, active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    .run(name, cleanText(req.body.phone, 30), cleanText(req.body.notes, 500), active, id);
+  if (!updated.changes) throw new Error("Parceiro não encontrado.");
+  audit(req.user.id, "partner.updated", "partner", id, { name, active });
+  res.json({ id, updated: true });
+}));
 
 app.get("/api/partners/summary", requireAuth, (_req, res) => {
   const partners = db.prepare("SELECT * FROM partners WHERE active = 1 ORDER BY name").all().map((partner) => {
@@ -1084,6 +1110,14 @@ app.post("/api/onboarding/:token", onboardingUpload.fields([{ name: "identity", 
     const document = cleanText(req.body.document, 30, true);
     const incomeType = cleanText(req.body.incomeType, 30, true);
     if (!["clt", "autonomo", "beneficio", "empresario", "outro"].includes(incomeType)) throw new Error("Origem da renda inválida.");
+    const detailFields = {
+      clt: ["employerName", "employmentStartDate", "incomeReferenceMonth"],
+      autonomo: ["activityDescription", "activityStartDate", "incomeReferenceMonth"],
+      beneficio: ["benefitType", "benefitNumber", "incomeReferenceMonth"],
+      empresario: ["businessName", "businessDocument", "businessStartDate", "incomeReferenceMonth"],
+      outro: ["incomeDescription", "incomeReferenceMonth"],
+    }[incomeType];
+    const incomeDetails = Object.fromEntries(detailFields.map((field) => [field, cleanText(req.body[field], 160, true)]));
     const declaredIncomeCents = positiveInteger(Number(req.body.declaredIncomeCents), "Remuneração");
     if (db.prepare("SELECT id FROM clients WHERE document = ? AND active = 1").get(document)) throw new Error("CPF já cadastrado. Entre em contato com o responsável.");
     const files = req.files || {};
@@ -1091,10 +1125,11 @@ app.post("/api/onboarding/:token", onboardingUpload.fields([{ name: "identity", 
     for (const [field] of required) if (!files[field]?.[0]) throw new Error("Identidade, endereço e renda são obrigatórios.");
     const result = transaction(() => {
       const clientResult = db.prepare(`INSERT INTO clients
-        (name, document, phone, birth_date, occupation, address, preferred_payment_window, credit_analysis_consent_at, income_type, declared_income_cents, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(name, document, cleanText(req.body.phone, 30) || invite.phone, cleanText(req.body.birthDate, 10), cleanText(req.body.occupation, 120), cleanText(req.body.address, 300), cleanText(req.body.preferredPaymentWindow, 20) || "flexivel", new Date().toISOString(), incomeType, declaredIncomeCents, "Cadastro enviado pelo convite seguro do parceiro.");
+        (name, document, phone, birth_date, occupation, address, preferred_payment_window, credit_analysis_consent_at, income_type, declared_income_cents, income_details_json, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(name, document, cleanText(req.body.phone, 30) || invite.phone, cleanText(req.body.birthDate, 10), cleanText(req.body.occupation, 120), cleanText(req.body.address, 300), cleanText(req.body.preferredPaymentWindow, 20) || "flexivel", new Date().toISOString(), incomeType, declaredIncomeCents, JSON.stringify(incomeDetails), "Cadastro enviado pelo convite seguro do parceiro.");
       const clientId = Number(clientResult.lastInsertRowid);
+      db.prepare("INSERT INTO client_partner_links (client_id, partner_id, source) VALUES (?, ?, 'invite')").run(clientId, invite.partner_id);
       for (const [field, type] of required) {
         const file = files[field][0];
         const mimeType = detectedDocumentMime(file.buffer);

@@ -18,6 +18,8 @@ export interface Client {
   credit_analysis_consent_at?: string;
   income_type?: string;
   declared_income_cents?: number;
+  income_details_json?: string;
+  partner_names?: string;
   contract_count: number;
   credit_score?: number;
   risk_band?: string;
@@ -41,6 +43,8 @@ export interface Contract {
   current_fee_cents: number;
   current_cycle: number;
   legacy_reference?: string;
+  partner_id?: number;
+  partner_name?: string;
 }
 export interface Dashboard {
   summary: {
@@ -222,7 +226,11 @@ export interface PartnerSummary {
   overdue_contracts: number;
   repeat_clients: number;
   recurrence_percent: number;
+  phone?: string;
+  notes?: string;
+  active: number;
 }
+export interface Partner { id: number; name: string; phone?: string; notes?: string; active: number; }
 export interface PartnerInvite { id: number; publicUrl: string; whatsappUrl: string; expiresAt: string; }
 export interface OnboardingInfo { partnerName: string; expiresAt: string; requiredDocuments: string[]; }
 export interface ClientAccessLink { publicUrl: string; whatsappUrl: string; expiresAt: string; }
@@ -317,6 +325,9 @@ export const api = {
   reviewClientDocument: (id: number, status: "verified" | "rejected", reviewNote = "") =>
     request<{ id: number; status: string }>(`/client-documents/${id}`, { method: "PATCH", body: JSON.stringify({ status, reviewNote }) }),
   partnerSummary: () => request<{ partners: PartnerSummary[] }>("/partners/summary"),
+  partners: () => request<{ partners: Partner[] }>("/partners"),
+  createPartner: (data: object) => request<{ id: number }>("/partners", { method: "POST", body: JSON.stringify(data) }),
+  updatePartner: (id: number, data: object) => request<{ id: number; updated: boolean }>(`/partners/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   createPartnerInvite: (partnerId: number, phone: string) => request<PartnerInvite>(`/partners/${partnerId}/invites`, { method: "POST", body: JSON.stringify({ phone }) }),
   onboardingInfo: (token: string) => request<OnboardingInfo>(`/onboarding/${token}`),
   submitOnboarding: async (token: string, form: FormData) => {

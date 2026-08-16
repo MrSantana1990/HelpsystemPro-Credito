@@ -97,7 +97,9 @@ flowchart LR
 - **Cobrança:** lembretes por WhatsApp, e-mail, SMS ou push.
 - **Comprovantes e dossiê:** recibo imprimível e documentos criptografados já disponíveis; PDF assinado é evolução.
 - **Visão do credor:** capital aplicado e em aberto, lucro realizado, margem, recorrência e risco da carteira.
+- **Múltiplos credores:** parceiros cadastráveis, com contratos, convites, clientes vinculados e resultados separados.
 - **Entrada de clientes:** convite seguro por WhatsApp, cadastro mobile e envio obrigatório de identidade, endereço e renda.
+- **Cadastro por renda:** campos e comprovações específicos para CLT, autônomo, benefício, MEI/empresa ou outra origem.
 - **Área do tomador:** acesso individual aos próprios contratos, vencimentos e solicitações após quitação.
 - **Central de vencimentos:** atrasados e próximos sete dias, com valores atualizados e lembrete individual pelo WhatsApp.
 - **Risco:** score interno explicável e limite recomendado já disponíveis; consulta a bureaus externos fica para uma integração futura.
