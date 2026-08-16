@@ -95,7 +95,10 @@ flowchart LR
 - **Pagamentos:** distribuição explícita entre multa, juros e principal.
 - **Renovações:** ciclos vinculados sem apagar o contrato original.
 - **Cobrança:** lembretes por WhatsApp, e-mail, SMS ou push.
-- **Comprovantes:** recibo imprimível já disponível; anexos e PDF assinado são evolução.
+- **Comprovantes e dossiê:** recibo imprimível e documentos criptografados já disponíveis; PDF assinado é evolução.
+- **Visão do credor:** capital aplicado e em aberto, lucro realizado, margem, recorrência e risco da carteira.
+- **Entrada de clientes:** convite seguro por WhatsApp, cadastro mobile e envio obrigatório de identidade, endereço e renda.
+- **Área do tomador:** acesso individual aos próprios contratos, vencimentos e solicitações após quitação.
 - **Risco:** score interno explicável e limite recomendado já disponíveis; consulta a bureaus externos fica para uma integração futura.
 - **Gestão:** relatórios, fluxo de caixa, auditoria e múltiplas empresas.
 
@@ -129,10 +132,11 @@ npm run build
 | 1 | Visão, regras, interface e documentação | ✅ Entregue |
 | 2 | Banco, clientes, contratos, pagamentos e auditoria | ✅ Entregue |
 | 3 | Renovação, renegociação, recibos, importação e backup | ✅ Entregue |
-| 4 | Avisos automáticos, anexos e portal do cliente | 🟡 Próxima fase |
+| 4A | Anexos criptografados e portal do cliente | ✅ Entregue no código · publicação pendente |
+| 4B | Avisos automáticos e comprovantes de entrega | 🟡 Próxima fase |
 | 5 | Pix por parceiro autorizado e conciliação | ⚪ Planejada |
 | 6 | Multiempresa, planos e administração SaaS | ⚪ Planejada |
-| 7 | Score interno | ✅ Entregue |
+| 7 | Score interno comportamental e análise explicável | ✅ Entregue |
 | 8 | Bureau externo, garantias e seguros | ⚪ Futura |
 
 Consulte [`docs/VISAO-DO-PRODUTO.md`](docs/VISAO-DO-PRODUTO.md) para o detalhamento.

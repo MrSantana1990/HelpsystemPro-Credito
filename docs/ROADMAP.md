@@ -25,18 +25,23 @@
 - renegociação;
 - quitação;
 - multas configuráveis;
-- anexos;
+- anexos criptografados; ✅
 - recibos e comprovantes;
-- agenda e alertas internos.
+- agenda e alertas internos. 🟡
 
 ## Fase 4 — Comunicação e cliente
 
-- modelos de mensagens;
+- convite individual por WhatsApp; ✅
+- cadastro mobile com documentos obrigatórios por origem de renda; ✅
+- área segura do tomador, separada da visão do credor; ✅
+- solicitação de novo empréstimo após quitação individual; ✅
+- modelos de mensagens automáticas; 🟡
 - consentimentos por canal;
 - filas e comprovantes de entrega;
-- portal do cliente;
 - assinatura de documentos;
 - solicitações de renegociação.
+
+> Os itens marcados com ✅ estão concluídos no código e aguardam publicação no GitHub e implantação na VPS. Os itens 🟡 são a próxima frente de desenvolvimento.
 
 ## Fase 5 — Integrações financeiras
 
@@ -67,4 +72,3 @@
 - revisão humana obrigatória nas decisões críticas.
 
 Cada fase só avança depois de validar a anterior com dados de teste, casos reais anonimizados e critérios objetivos de aceite.
-

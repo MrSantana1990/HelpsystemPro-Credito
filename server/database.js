@@ -55,6 +55,16 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS partners (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    phone TEXT,
+    notes TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS contracts (
     id INTEGER PRIMARY KEY,
     client_id INTEGER NOT NULL REFERENCES clients(id),
@@ -185,6 +195,30 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS onboarding_invites (
+    id INTEGER PRIMARY KEY,
+    partner_id INTEGER NOT NULL REFERENCES partners(id),
+    token_hash TEXT NOT NULL UNIQUE,
+    phone TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'submitted', 'expired', 'cancelled')),
+    expires_at TEXT NOT NULL,
+    client_id INTEGER REFERENCES clients(id),
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    submitted_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS client_access_links (
+    id INTEGER PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    token_hash TEXT NOT NULL UNIQUE,
+    active INTEGER NOT NULL DEFAULT 1,
+    expires_at TEXT NOT NULL,
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_accessed_at TEXT
+  );
+
   CREATE INDEX IF NOT EXISTS idx_contracts_client ON contracts(client_id);
   CREATE INDEX IF NOT EXISTS idx_contracts_due ON contracts(due_date);
   CREATE INDEX IF NOT EXISTS idx_payments_contract ON payments(contract_id);
@@ -192,8 +226,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_credit_assessments_client ON credit_assessments(client_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_loan_requests_status ON loan_requests(status, requested_at);
   CREATE INDEX IF NOT EXISTS idx_client_documents_client ON client_documents(client_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_onboarding_invites_status ON onboarding_invites(status, expires_at);
+  CREATE INDEX IF NOT EXISTS idx_client_access_links_client ON client_access_links(client_id, active, expires_at);
 `);
 db.prepare("INSERT OR IGNORE INTO settings (id) VALUES (1)").run();
+db.prepare("INSERT OR IGNORE INTO partners (name, notes) VALUES ('Rodrigo', 'Credor principal da carteira original.')").run();
 
 const clientColumns = db
   .prepare("PRAGMA table_info(clients)")
@@ -220,6 +257,11 @@ if (!contractColumns.includes("legacy_reference")) {
   db.exec(
     "CREATE INDEX IF NOT EXISTS idx_contracts_legacy_reference ON contracts(legacy_reference)",
   );
+}
+if (!contractColumns.includes("partner_id")) {
+  db.exec("ALTER TABLE contracts ADD COLUMN partner_id INTEGER REFERENCES partners(id)");
+  db.exec("UPDATE contracts SET partner_id = (SELECT id FROM partners WHERE name = 'Rodrigo' LIMIT 1) WHERE partner_id IS NULL");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_contracts_partner ON contracts(partner_id)");
 }
 
 const paymentColumns = db
