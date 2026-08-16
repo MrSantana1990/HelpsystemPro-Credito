@@ -43,6 +43,7 @@ import {
   CreditAssessment,
   LoanRequest,
   EligiblePaidContract,
+  RiskProfile,
   Settings as SystemSettings,
   User,
 } from "./api";
@@ -331,6 +332,7 @@ function App() {
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
   const [scoreClientId, setScoreClientId] = useState<number | null>(null);
   const [scoreResult, setScoreResult] = useState<CreditAssessment | null>(null);
+  const [riskProfile, setRiskProfile] = useState<RiskProfile | null>(null);
   const [paymentList, setPaymentList] = useState<PaymentListItem[]>([]);
   const [renewalList, setRenewalList] = useState<RenewalListItem[]>([]);
   const [loanRequests, setLoanRequests] = useState<LoanRequest[]>([]);
@@ -395,9 +397,8 @@ function App() {
     event.preventDefault();
     setBusy(true);
     setError("");
-    const data = Object.fromEntries(
-      new FormData(event.currentTarget),
-    ) as Record<string, string>;
+    const form = new FormData(event.currentTarget);
+    const data = { ...Object.fromEntries(form), creditAnalysisConsent: form.get("creditAnalysisConsent") === "on" };
     try {
       await api.createClient(data);
       await loadData();
@@ -416,7 +417,8 @@ function App() {
     if (!editingClientId) return;
     setBusy(true);
     setError("");
-    const data = Object.fromEntries(new FormData(event.currentTarget)) as Record<string, string>;
+    const form = new FormData(event.currentTarget);
+    const data = { ...Object.fromEntries(form), creditAnalysisConsent: form.get("creditAnalysisConsent") === "on" };
     try {
       await api.updateClient(editingClientId, data);
       await loadData();
@@ -443,12 +445,24 @@ function App() {
         employmentMonths: Number(data.get("employmentMonths")),
       });
       setScoreResult(result);
+      setRiskProfile(await api.riskProfile(scoreClientId));
       await loadData();
       notify("Análise interna registrada no histórico do cliente.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Falha ao analisar crédito.");
     } finally {
       setBusy(false);
+    }
+  }
+  async function openRiskProfile(clientId: number) {
+    setScoreClientId(clientId);
+    setScoreResult(null);
+    setRiskProfile(null);
+    setModal("score");
+    try {
+      setRiskProfile(await api.riskProfile(clientId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha ao calcular o indicador interno.");
     }
   }
   async function submitContract(event: FormEvent<HTMLFormElement>) {
@@ -983,6 +997,11 @@ function App() {
                   </div>
                   <ChevronRight />
                 </button>
+                <button onClick={() => void navigate("loanRequests")}>
+                  <span className="q-blue"><Handshake /></span>
+                  <div><strong>Nova solicitação</strong><small>Disponível após quitação individual</small></div>
+                  <ChevronRight />
+                </button>
                 <button
                   disabled={!contracts.some((item) => item.status === "open")}
                   onClick={() => setModal("payment")}
@@ -1135,9 +1154,9 @@ function App() {
           <Plus />
           <span>Novo</span>
         </button>
-        <button onClick={() => setModal("import")}>
-          <FileUp />
-          <span>Importar</span>
+        <button onClick={() => void navigate("loanRequests")}>
+          <Handshake />
+          <span>Solicitar</span>
         </button>
         <button onClick={() => setMenuOpen(true)}>
           <Menu />
@@ -1243,9 +1262,9 @@ function App() {
               <div className="history-list">
                 {clients.map((client) => (
                   <article key={client.id}>
-                    <div><strong>{client.name}</strong><small>{client.phone || "Sem telefone"} · {client.contract_count} contrato(s)</small></div>
+                    <div><strong>{client.name}</strong><small>{client.phone || "Sem telefone"} · {client.contract_count} contrato(s) · indicador {client.behavior_score ?? 500}/1000</small></div>
                     <div className="payment-actions">
-                      <button className="receipt-button" onClick={() => { setScoreClientId(client.id); setScoreResult(null); setModal("score"); }}><ShieldCheck />Score</button>
+                      <button className="receipt-button" onClick={() => void openRiskProfile(client.id)}><ShieldCheck />Risco</button>
                       <button className="receipt-button" onClick={() => setEditingClientId(client.id)}>Editar</button>
                     </div>
                   </article>
@@ -1261,6 +1280,10 @@ function App() {
                 <label>Nome completo<input name="name" required maxLength={120} defaultValue={client.name} autoFocus /></label>
                 <div className="form-row"><label>CPF ou documento<input name="document" maxLength={30} defaultValue={client.document || ""} /></label><label>Telefone<input name="phone" maxLength={30} defaultValue={client.phone || ""} /></label></div>
                 <label>E-mail<input name="email" type="email" maxLength={160} defaultValue={client.email || ""} /></label>
+                <div className="form-row"><label>Data de nascimento<input name="birthDate" type="date" defaultValue={client.birth_date || ""} /></label><label>Profissão ou atividade<input name="occupation" maxLength={120} defaultValue={client.occupation || ""} /></label></div>
+                <label>Endereço<input name="address" maxLength={300} defaultValue={client.address || ""} /></label>
+                <label>Preferência de pagamento<select name="preferredPaymentWindow" defaultValue={client.preferred_payment_window || "flexivel"}><option value="dia_15">Dia 15</option><option value="fim_mes">Final do mês</option><option value="flexivel">Flexível</option></select></label>
+                <label className="check-label"><input name="creditAnalysisConsent" type="checkbox" defaultChecked={Boolean(client.credit_analysis_consent_at)} /><span><strong>Ciência sobre análise interna</strong><small>Registra que os dados serão usados para indicador de risco explicável.</small></span></label>
                 <label>Observações<textarea name="notes" maxLength={1000} rows={3} defaultValue={client.notes || ""} /></label>
                 {error && <div className="form-error">{error}</div>}
                 <div className="dialog-actions"><button type="button" onClick={() => setEditingClientId(null)}>Voltar</button><button className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" />}Salvar alterações</button></div>
@@ -1297,6 +1320,10 @@ function App() {
               E-mail
               <input name="email" type="email" maxLength={160} />
             </label>
+            <div className="form-row"><label>Data de nascimento<input name="birthDate" type="date" /></label><label>Profissão ou atividade<input name="occupation" maxLength={120} /></label></div>
+            <label>Endereço<input name="address" maxLength={300} /></label>
+            <label>Preferência de pagamento<select name="preferredPaymentWindow" defaultValue="flexivel"><option value="dia_15">Dia 15</option><option value="fim_mes">Final do mês</option><option value="flexivel">Flexível</option></select></label>
+            <label className="check-label"><input name="creditAnalysisConsent" type="checkbox" /><span><strong>Ciência sobre análise interna</strong><small>O cliente foi informado sobre o uso dos dados no indicador interno explicável.</small></span></label>
             <label>
               Observações
               <textarea name="notes" maxLength={1000} rows={3} />
@@ -1315,25 +1342,35 @@ function App() {
       )}
       {modal === "score" && scoreClientId && (
         <Dialog
-          title="Análise interna de crédito"
-          subtitle={`${clients.find((item) => item.id === scoreClientId)?.name || "Cliente"} · estimativa explicável, não é consulta a bureau`}
-          close={() => { setModal(null); setScoreResult(null); setError(""); }}
+          title="Perfil de risco interno"
+          subtitle={`${clients.find((item) => item.id === scoreClientId)?.name || "Cliente"} · atualizado automaticamente pelo uso do sistema`}
+          close={() => { setModal(null); setScoreResult(null); setRiskProfile(null); setError(""); }}
         >
-          {!scoreResult ? (
+          {!riskProfile ? <div className="metric-focus"><LoaderCircle className="spin" /><span>Calculando histórico...</span></div> : (
+            <div className="history-body">
+              <div className="risk-hero">
+                <div className={`risk-score risk-${riskProfile.behavior.riskBand}`}><span>INDICADOR AUTOMÁTICO</span><strong>{riskProfile.behavior.score}</strong><small>de 1.000 · risco {riskProfile.behavior.riskBand.replace("_", " ")}</small></div>
+                <div className="risk-limit"><span>LIMITE PELO HISTÓRICO</span><strong>{riskProfile.behavior.recommendedLimitCents ? money(riskProfile.behavior.recommendedLimitCents) : "Em formação"}</strong><small>Revisão humana obrigatória</small></div>
+              </div>
+              <h3>Por que recebeu esta nota</h3>
+              <div className="risk-reasons">{riskProfile.behavior.reasons.map((reason) => <div key={reason}><CheckCircle2 />{reason}</div>)}</div>
+              {riskProfile.financial && <div className="form-warning"><ShieldCheck />Última análise financeira: {riskProfile.financial.score}/1000 · risco {riskProfile.financial.risk_band.replace("_", " ")} · limite {money(riskProfile.financial.recommended_limit_cents)}.</div>}
+              <details className="risk-refine" open={!riskProfile.financial && !scoreResult}>
+                <summary>Complementar com renda e endividamento</summary>
+                {!scoreResult ? (
             <form className="dialog-form" onSubmit={submitCreditAssessment}>
-              <div className="form-warning"><AlertTriangle />Use valores confirmados pelo cliente. O resultado apoia a decisão, mas não aprova crédito automaticamente.</div>
+              <div className="form-warning"><AlertTriangle />Informe apenas dados confirmados pelo cliente. Nenhuma aprovação será automática.</div>
               <div className="form-row"><label>Renda mensal<input name="income" inputMode="decimal" required placeholder="Ex.: 5.000,00" /></label><label>Despesas mensais<input name="expenses" inputMode="decimal" required placeholder="Ex.: 2.000,00" /></label></div>
               <div className="form-row"><label>Parcelas/dívidas mensais<input name="debt" inputMode="decimal" defaultValue="0" /></label><label>Valor solicitado<input name="requested" inputMode="decimal" required /></label></div>
               <label>Há quantos meses possui essa renda?<input name="employmentMonths" type="number" min="0" max="600" required /></label>
               {error && <div className="form-error">{error}</div>}
-              <div className="dialog-actions"><button type="button" onClick={() => setModal("clients")}>Cancelar</button><button className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" />}Calcular score</button></div>
+              <div className="dialog-actions"><button className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" />}Recalcular análise</button></div>
             </form>
           ) : (
-            <div className="history-body">
               <div className="history-summary"><div><span>SCORE INTERNO</span><strong>{scoreResult.score}/1000</strong></div><div><span>RISCO</span><strong>{scoreResult.riskBand.replace("_", " ")}</strong></div><div><span>LIMITE RECOMENDADO</span><strong>{money(scoreResult.recommendedLimitCents)}</strong></div></div>
-              <h3>Motivos do resultado</h3><div className="history-list">{scoreResult.reasons.map((reason) => <article key={reason}><div><strong>{reason}</strong></div></article>)}</div>
-              <div className="form-warning"><ShieldCheck />Score interno baseado nos dados informados e no histórico desta plataforma. Não representa Serasa, SPC ou garantia de pagamento.</div>
-              <div className="dialog-actions"><button onClick={() => { setScoreResult(null); setModal("clients"); }}>Voltar aos clientes</button></div>
+          )}</details>
+              <div className="form-warning"><ShieldCheck />{riskProfile.disclaimer} O cliente pode pedir explicação e revisão dos critérios.</div>
+              <div className="dialog-actions"><button onClick={() => setModal("clients")}>Voltar aos clientes</button></div>
             </div>
           )}
         </Dialog>

@@ -88,6 +88,11 @@ describe("API operacional", () => {
         body: JSON.stringify({
           name: "Cliente Integração Atualizado",
           phone: "11999990000",
+          document: "12345678900",
+          email: "cliente@teste.local",
+          occupation: "Profissional autônomo",
+          preferredPaymentWindow: "dia_15",
+          creditAnalysisConsent: true,
           notes: "Cadastro revisado no teste de integração.",
         }),
       }),
@@ -95,7 +100,12 @@ describe("API operacional", () => {
     expect((await request("/clients")).clients[0]).toMatchObject({
       name: "Cliente Integração Atualizado",
       phone: "11999990000",
+      occupation: "Profissional autônomo",
+      preferred_payment_window: "dia_15",
     });
+    const initialRisk = await request(`/clients/${client.id}/risk-profile`);
+    expect(initialRisk.behavior).toMatchObject({ score: expect.any(Number), riskBand: expect.any(String) });
+    expect(initialRisk.disclaimer).toContain("revisão humana");
     const assessment = await request(`/clients/${client.id}/credit-assessments`, {
       method: "POST",
       body: JSON.stringify({
