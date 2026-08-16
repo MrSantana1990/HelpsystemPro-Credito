@@ -38,6 +38,9 @@ import {
   ContractHistory,
   Dashboard,
   ImportPreview,
+  PaymentListItem,
+  RenewalListItem,
+  CreditAssessment,
   Settings as SystemSettings,
   User,
 } from "./api";
@@ -45,6 +48,11 @@ import {
 type Modal =
   | "client"
   | "clients"
+  | "contracts"
+  | "payments"
+  | "renewals"
+  | "receipts"
+  | "score"
   | "contract"
   | "payment"
   | "renegotiate"
@@ -192,12 +200,14 @@ function Sidebar({
   user,
   onBackup,
   onLogout,
+  onNavigate,
 }: {
   open: boolean;
   close: () => void;
   user: User;
   onBackup: () => void;
   onLogout: () => void;
+  onNavigate: (target: Exclude<Modal, null>) => void;
 }) {
   return (
     <aside className={`sidebar ${open ? "open" : ""}`}>
@@ -214,23 +224,23 @@ function Sidebar({
           <span>Visão geral</span>
           <i />
         </button>
-        <button>
+        <button onClick={() => { onNavigate("clients"); close(); }}>
           <Users size={19} />
           <span>Clientes</span>
         </button>
-        <button>
+        <button onClick={() => { onNavigate("contracts"); close(); }}>
           <FileCheck2 size={19} />
           <span>Contratos</span>
         </button>
-        <button>
+        <button onClick={() => { onNavigate("payments"); close(); }}>
           <CircleDollarSign size={19} />
           <span>Pagamentos</span>
         </button>
-        <button>
+        <button onClick={() => { onNavigate("renewals"); close(); }}>
           <RefreshCw size={19} />
           <span>Renovações</span>
         </button>
-        <button>
+        <button onClick={() => { onNavigate("receipts"); close(); }}>
           <ReceiptText size={19} />
           <span>Comprovantes</span>
         </button>
@@ -312,6 +322,10 @@ function App() {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [reversePaymentId, setReversePaymentId] = useState<number | null>(null);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
+  const [scoreClientId, setScoreClientId] = useState<number | null>(null);
+  const [scoreResult, setScoreResult] = useState<CreditAssessment | null>(null);
+  const [paymentList, setPaymentList] = useState<PaymentListItem[]>([]);
+  const [renewalList, setRenewalList] = useState<RenewalListItem[]>([]);
   const [modal, setModal] = useState<Modal>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -321,6 +335,16 @@ function App() {
   const notify = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 3500);
+  };
+  const navigate = async (target: Exclude<Modal, null>) => {
+    setError("");
+    if (target === "payments" || target === "receipts") {
+      setPaymentList((await api.payments()).payments);
+    }
+    if (target === "renewals") {
+      setRenewalList((await api.renewals()).renewals);
+    }
+    setModal(target);
   };
   const loadData = useCallback(async () => {
     const [dash, clientData, contractData, settingsData] = await Promise.all([
@@ -386,6 +410,29 @@ function App() {
       notify("Cadastro do cliente atualizado.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Falha ao atualizar cliente.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function submitCreditAssessment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!scoreClientId) return;
+    setBusy(true);
+    setError("");
+    const data = new FormData(event.currentTarget);
+    try {
+      const result = await api.assessCredit(scoreClientId, {
+        monthlyIncomeCents: toCents(data.get("income")),
+        monthlyExpensesCents: toCents(data.get("expenses")),
+        existingDebtCents: toCents(data.get("debt")),
+        requestedCents: toCents(data.get("requested")),
+        employmentMonths: Number(data.get("employmentMonths")),
+      });
+      setScoreResult(result);
+      await loadData();
+      notify("Análise interna registrada no histórico do cliente.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha ao analisar crédito.");
     } finally {
       setBusy(false);
     }
@@ -682,6 +729,7 @@ function App() {
         user={user}
         onBackup={backup}
         onLogout={logout}
+        onNavigate={(target) => void navigate(target)}
       />
       {menuOpen && (
         <button
@@ -1044,6 +1092,54 @@ function App() {
           <span>Mais</span>
         </button>
       </nav>
+      {modal === "contracts" && (
+        <Dialog title="Contratos" subtitle="Carteira completa, incluindo encerrados e renegociados." close={() => setModal(null)}>
+          <div className="history-body">
+            <div className="history-list">
+              {contracts.length ? contracts.map((contract) => (
+                <article key={contract.id}>
+                  <div><strong>{contract.client_name} · #{String(contract.id).padStart(4, "0")}</strong><small>{dateBr(contract.due_date)} · {money(contract.balance_principal_cents)} · {contract.status}</small></div>
+                  <button className="receipt-button" onClick={() => openHistory(contract.id)}><Eye />Ver</button>
+                </article>
+              )) : <div className="empty compact"><FileCheck2 /><span>Nenhum contrato cadastrado.</span></div>}
+            </div>
+            <div className="dialog-actions"><button onClick={() => setModal(null)}>Fechar</button><button className="primary-action" onClick={() => setModal(clients.length ? "contract" : "client")}><Plus />Novo</button></div>
+          </div>
+        </Dialog>
+      )}
+      {modal === "payments" && (
+        <Dialog title="Pagamentos" subtitle="Todos os recebimentos e estornos da operação." close={() => setModal(null)}>
+          <div className="history-body">
+            <div className="history-list">
+              {paymentList.length ? paymentList.map((payment) => (
+                <article key={payment.id}>
+                  <div><strong>{payment.client_name} · {money(payment.amount_cents)}</strong><small>{dateBr(payment.payment_date)} · contrato #{payment.contract_id} · {payment.method}{payment.reversed_at ? " · ESTORNADO" : ""}</small></div>
+                  <button className="receipt-button" onClick={() => openHistory(payment.contract_id)}><Eye />Histórico</button>
+                </article>
+              )) : <div className="empty compact"><CircleDollarSign /><span>Nenhum pagamento registrado.</span></div>}
+            </div>
+            <div className="dialog-actions"><button onClick={() => setModal(null)}>Fechar</button><button className="primary-action" disabled={!contracts.some((item) => item.status === "open")} onClick={() => setModal("payment")}><Plus />Registrar</button></div>
+          </div>
+        </Dialog>
+      )}
+      {modal === "renewals" && (
+        <Dialog title="Renovações" subtitle="Ciclos renovados sem apagar o principal ou o histórico." close={() => setModal(null)}>
+          <div className="history-body"><div className="history-list">
+            {renewalList.length ? renewalList.map((renewal) => (
+              <article key={renewal.id}><div><strong>{renewal.client_name} · ciclo {renewal.cycle_number}</strong><small>{dateBr(renewal.start_date)} → {dateBr(renewal.due_date)} · {money(renewal.opening_principal_cents)}</small></div><button className="receipt-button" onClick={() => openHistory(renewal.contract_id)}><Eye />Ver</button></article>
+            )) : <div className="empty compact"><RefreshCw /><span>Nenhuma renovação registrada.</span></div>}
+          </div><div className="dialog-actions"><button onClick={() => setModal(null)}>Fechar</button></div></div>
+        </Dialog>
+      )}
+      {modal === "receipts" && (
+        <Dialog title="Comprovantes" subtitle="Recibos vinculados aos pagamentos confirmados." close={() => setModal(null)}>
+          <div className="history-body"><div className="history-list">
+            {paymentList.filter((item) => !item.reversed_at).length ? paymentList.filter((item) => !item.reversed_at).map((payment) => (
+              <article key={payment.id}><div><strong>{payment.client_name} · {money(payment.amount_cents)}</strong><small>{dateBr(payment.payment_date)} · código {payment.receiptCode}</small></div><button className="receipt-button" onClick={() => printReceipt(payment.id)}><Printer />Emitir</button></article>
+            )) : <div className="empty compact"><ReceiptText /><span>Nenhum comprovante disponível.</span></div>}
+          </div><div className="dialog-actions"><button onClick={() => setModal(null)}>Fechar</button></div></div>
+        </Dialog>
+      )}
       {modal === "clients" && (
         <Dialog
           title="Clientes"
@@ -1056,7 +1152,10 @@ function App() {
                 {clients.map((client) => (
                   <article key={client.id}>
                     <div><strong>{client.name}</strong><small>{client.phone || "Sem telefone"} · {client.contract_count} contrato(s)</small></div>
-                    <button className="receipt-button" onClick={() => setEditingClientId(client.id)}>Editar</button>
+                    <div className="payment-actions">
+                      <button className="receipt-button" onClick={() => { setScoreClientId(client.id); setScoreResult(null); setModal("score"); }}><ShieldCheck />Score</button>
+                      <button className="receipt-button" onClick={() => setEditingClientId(client.id)}>Editar</button>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -1120,6 +1219,31 @@ function App() {
               </button>
             </div>
           </form>
+        </Dialog>
+      )}
+      {modal === "score" && scoreClientId && (
+        <Dialog
+          title="Análise interna de crédito"
+          subtitle={`${clients.find((item) => item.id === scoreClientId)?.name || "Cliente"} · estimativa explicável, não é consulta a bureau`}
+          close={() => { setModal(null); setScoreResult(null); setError(""); }}
+        >
+          {!scoreResult ? (
+            <form className="dialog-form" onSubmit={submitCreditAssessment}>
+              <div className="form-warning"><AlertTriangle />Use valores confirmados pelo cliente. O resultado apoia a decisão, mas não aprova crédito automaticamente.</div>
+              <div className="form-row"><label>Renda mensal<input name="income" inputMode="decimal" required placeholder="Ex.: 5.000,00" /></label><label>Despesas mensais<input name="expenses" inputMode="decimal" required placeholder="Ex.: 2.000,00" /></label></div>
+              <div className="form-row"><label>Parcelas/dívidas mensais<input name="debt" inputMode="decimal" defaultValue="0" /></label><label>Valor solicitado<input name="requested" inputMode="decimal" required /></label></div>
+              <label>Há quantos meses possui essa renda?<input name="employmentMonths" type="number" min="0" max="600" required /></label>
+              {error && <div className="form-error">{error}</div>}
+              <div className="dialog-actions"><button type="button" onClick={() => setModal("clients")}>Cancelar</button><button className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" />}Calcular score</button></div>
+            </form>
+          ) : (
+            <div className="history-body">
+              <div className="history-summary"><div><span>SCORE INTERNO</span><strong>{scoreResult.score}/1000</strong></div><div><span>RISCO</span><strong>{scoreResult.riskBand.replace("_", " ")}</strong></div><div><span>LIMITE RECOMENDADO</span><strong>{money(scoreResult.recommendedLimitCents)}</strong></div></div>
+              <h3>Motivos do resultado</h3><div className="history-list">{scoreResult.reasons.map((reason) => <article key={reason}><div><strong>{reason}</strong></div></article>)}</div>
+              <div className="form-warning"><ShieldCheck />Score interno baseado nos dados informados e no histórico desta plataforma. Não representa Serasa, SPC ou garantia de pagamento.</div>
+              <div className="dialog-actions"><button onClick={() => { setScoreResult(null); setModal("clients"); }}>Voltar aos clientes</button></div>
+            </div>
+          )}
         </Dialog>
       )}
       {modal === "contract" && (

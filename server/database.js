@@ -132,10 +132,27 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS credit_assessments (
+    id INTEGER PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    monthly_income_cents INTEGER NOT NULL CHECK(monthly_income_cents > 0),
+    monthly_expenses_cents INTEGER NOT NULL DEFAULT 0 CHECK(monthly_expenses_cents >= 0),
+    existing_debt_cents INTEGER NOT NULL DEFAULT 0 CHECK(existing_debt_cents >= 0),
+    requested_cents INTEGER NOT NULL CHECK(requested_cents > 0),
+    employment_months INTEGER NOT NULL DEFAULT 0 CHECK(employment_months >= 0),
+    score INTEGER NOT NULL CHECK(score BETWEEN 0 AND 1000),
+    recommended_limit_cents INTEGER NOT NULL CHECK(recommended_limit_cents >= 0),
+    risk_band TEXT NOT NULL,
+    reasons_json TEXT NOT NULL,
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE INDEX IF NOT EXISTS idx_contracts_client ON contracts(client_id);
   CREATE INDEX IF NOT EXISTS idx_contracts_due ON contracts(due_date);
   CREATE INDEX IF NOT EXISTS idx_payments_contract ON payments(contract_id);
   CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+  CREATE INDEX IF NOT EXISTS idx_credit_assessments_client ON credit_assessments(client_id, created_at);
 `);
 db.prepare("INSERT OR IGNORE INTO settings (id) VALUES (1)").run();
 

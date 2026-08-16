@@ -12,6 +12,9 @@ export interface Client {
   email?: string;
   notes?: string;
   contract_count: number;
+  credit_score?: number;
+  risk_band?: string;
+  recommended_limit_cents?: number;
 }
 export interface Contract {
   id: number;
@@ -112,6 +115,37 @@ export interface Settings {
   daily_fee_cents: number;
   daily_fee_enabled: number;
 }
+export interface PaymentListItem {
+  id: number;
+  contract_id: number;
+  client_name: string;
+  amount_cents: number;
+  fee_cents: number;
+  interest_cents: number;
+  principal_cents: number;
+  payment_date: string;
+  method: string;
+  receiptCode: string;
+  reversed_at?: string;
+}
+export interface RenewalListItem {
+  id: number;
+  contract_id: number;
+  client_name: string;
+  cycle_number: number;
+  start_date: string;
+  due_date: string;
+  opening_principal_cents: number;
+  interest_cents: number;
+  status: string;
+}
+export interface CreditAssessment {
+  id: number;
+  score: number;
+  recommendedLimitCents: number;
+  riskBand: string;
+  reasons: string[];
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -156,6 +190,13 @@ export const api = {
       body: JSON.stringify(data),
     }),
   contracts: () => request<{ contracts: Contract[] }>("/contracts"),
+  payments: () => request<{ payments: PaymentListItem[] }>("/payments"),
+  renewals: () => request<{ renewals: RenewalListItem[] }>("/renewals"),
+  assessCredit: (id: number, data: object) =>
+    request<CreditAssessment>(`/clients/${id}/credit-assessments`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   createContract: (data: object) =>
     request<{
       id: number;
