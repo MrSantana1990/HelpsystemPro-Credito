@@ -27,7 +27,8 @@
 - multas configuráveis;
 - anexos criptografados; ✅
 - recibos e comprovantes;
-- agenda e alertas internos. 🟡
+- central de atrasos e vencimentos dos próximos sete dias; ✅
+- lembretes individuais com mensagem pronta para WhatsApp; ✅
 
 ## Fase 4 — Comunicação e cliente
 

@@ -99,6 +99,7 @@ flowchart LR
 - **Visão do credor:** capital aplicado e em aberto, lucro realizado, margem, recorrência e risco da carteira.
 - **Entrada de clientes:** convite seguro por WhatsApp, cadastro mobile e envio obrigatório de identidade, endereço e renda.
 - **Área do tomador:** acesso individual aos próprios contratos, vencimentos e solicitações após quitação.
+- **Central de vencimentos:** atrasados e próximos sete dias, com valores atualizados e lembrete individual pelo WhatsApp.
 - **Risco:** score interno explicável e limite recomendado já disponíveis; consulta a bureaus externos fica para uma integração futura.
 - **Gestão:** relatórios, fluxo de caixa, auditoria e múltiplas empresas.
 
@@ -133,7 +134,8 @@ npm run build
 | 2 | Banco, clientes, contratos, pagamentos e auditoria | ✅ Entregue |
 | 3 | Renovação, renegociação, recibos, importação e backup | ✅ Entregue |
 | 4A | Anexos criptografados e portal do cliente | ✅ Entregue no código · publicação pendente |
-| 4B | Avisos automáticos e comprovantes de entrega | 🟡 Próxima fase |
+| 4B | Central interna e lembretes manuais pelo WhatsApp | ✅ Entregue no código · publicação pendente |
+| 4C | Avisos automáticos e comprovantes de entrega | 🟡 Próxima fase |
 | 5 | Pix por parceiro autorizado e conciliação | ⚪ Planejada |
 | 6 | Multiempresa, planos e administração SaaS | ⚪ Planejada |
 | 7 | Score interno comportamental e análise explicável | ✅ Entregue |

@@ -250,6 +250,9 @@ describe("API operacional", () => {
       toInterest: 30_000,
       toPrincipal: 0,
     });
+    const alerts = await request("/alerts");
+    expect(alerts.summary.overdue).toBeGreaterThan(0);
+    expect(alerts.alerts).toEqual(expect.arrayContaining([expect.objectContaining({ contract_id: overdue.id, urgency: "overdue", whatsapp_url: expect.stringContaining("wa.me/5511999990000") })]));
 
     const settings = await request("/settings");
     expect(settings.settings).toMatchObject({

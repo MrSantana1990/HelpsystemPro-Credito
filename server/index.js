@@ -841,6 +841,35 @@ app.get("/api/contracts", requireAuth, (req, res) => {
   res.json({ contracts: rows });
 });
 
+app.get("/api/alerts", requireAuth, (_req, res) => {
+  const today = currentDate();
+  const settings = getSettings();
+  const alerts = db.prepare(`SELECT contracts.id AS contract_id, contracts.due_date, contracts.principal_cents,
+      clients.id AS client_id, clients.name AS client_name, clients.phone,
+      COALESCE((SELECT SUM(principal_cents) FROM payments WHERE contract_id = contracts.id AND reversed_at IS NULL), 0) AS principal_paid_cents,
+      COALESCE((SELECT MAX(0, cycles.interest_cents - COALESCE((SELECT SUM(payments.interest_cents) FROM payments WHERE payments.cycle_id = cycles.id AND payments.reversed_at IS NULL), 0)) FROM cycles WHERE cycles.contract_id = contracts.id AND cycles.status = 'open' ORDER BY cycles.cycle_number DESC LIMIT 1), 0) AS interest_due_cents,
+      COALESCE((SELECT MAX(0, cycles.fee_cents - COALESCE((SELECT SUM(payments.fee_cents) FROM payments WHERE payments.cycle_id = cycles.id AND payments.reversed_at IS NULL), 0)) FROM cycles WHERE cycles.contract_id = contracts.id AND cycles.status = 'open' ORDER BY cycles.cycle_number DESC LIMIT 1), 0) AS stored_fee_cents,
+      COALESCE((SELECT COALESCE((SELECT SUM(payments.fee_cents) FROM payments WHERE payments.cycle_id = cycles.id AND payments.reversed_at IS NULL), 0) FROM cycles WHERE cycles.contract_id = contracts.id AND cycles.status = 'open' ORDER BY cycles.cycle_number DESC LIMIT 1), 0) AS fee_paid_cents
+    FROM contracts JOIN clients ON clients.id = contracts.client_id
+    WHERE contracts.status = 'open' AND contracts.due_date <= date(?, '+7 days')
+    ORDER BY contracts.due_date, contracts.id`).all(today).map((row) => {
+      const daysUntilDue = Math.round((Date.parse(`${row.due_date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+      const accrued = accruedDailyFee(row.due_date, today, settings.daily_fee_cents, Boolean(settings.daily_fee_enabled));
+      const feeDueCents = Math.max(0, Math.max(row.stored_fee_cents + row.fee_paid_cents, accrued) - row.fee_paid_cents);
+      const principalDueCents = Math.max(0, row.principal_cents - row.principal_paid_cents);
+      const urgency = daysUntilDue < 0 ? "overdue" : daysUntilDue === 0 ? "today" : daysUntilDue <= 3 ? "three_days" : "seven_days";
+      const totalDueCents = principalDueCents + row.interest_due_cents + feeDueCents;
+      const phone = String(row.phone || "").replace(/\D/g, "");
+      const whatsappPhone = phone ? (phone.startsWith("55") ? phone : `55${phone}`) : "";
+      const dateLabel = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${row.due_date}T00:00:00Z`));
+      const amountLabel = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(totalDueCents / 100);
+      const message = `Olá, ${row.client_name}. Este é um lembrete sobre o contrato #${String(row.contract_id).padStart(4, "0")}, com vencimento em ${dateLabel} e total atual de ${amountLabel}. Em caso de dúvida, responda esta mensagem.`;
+      return { ...row, principal_due_cents: principalDueCents, fee_due_cents: feeDueCents, total_due_cents: totalDueCents, days_until_due: daysUntilDue, urgency, whatsapp_url: whatsappPhone ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}` : "" };
+    });
+  const summary = alerts.reduce((result, alert) => ({ ...result, [alert.urgency]: result[alert.urgency] + 1 }), { overdue: 0, today: 0, three_days: 0, seven_days: 0 });
+  res.json({ summary, alerts });
+});
+
 app.post(
   "/api/contracts",
   requireAuth,
