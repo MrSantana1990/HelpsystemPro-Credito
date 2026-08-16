@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Baixar código
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Preparar Node.js
         uses: actions/setup-node@v5
@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: Baixar código
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Construir imagem de produção
         run: docker build --tag helpsystempro-credito:test .
