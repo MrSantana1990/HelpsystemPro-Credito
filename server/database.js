@@ -166,12 +166,32 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS client_documents (
+    id INTEGER PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    document_type TEXT NOT NULL CHECK(document_type IN ('identidade', 'endereco', 'renda', 'outro')),
+    original_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL CHECK(size_bytes > 0),
+    encrypted_data BLOB NOT NULL,
+    iv BLOB NOT NULL,
+    auth_tag BLOB NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'verified', 'rejected')),
+    review_note TEXT,
+    expires_on TEXT,
+    uploaded_by INTEGER NOT NULL REFERENCES users(id),
+    reviewed_by INTEGER REFERENCES users(id),
+    reviewed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE INDEX IF NOT EXISTS idx_contracts_client ON contracts(client_id);
   CREATE INDEX IF NOT EXISTS idx_contracts_due ON contracts(due_date);
   CREATE INDEX IF NOT EXISTS idx_payments_contract ON payments(contract_id);
   CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
   CREATE INDEX IF NOT EXISTS idx_credit_assessments_client ON credit_assessments(client_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_loan_requests_status ON loan_requests(status, requested_at);
+  CREATE INDEX IF NOT EXISTS idx_client_documents_client ON client_documents(client_id, created_at);
 `);
 db.prepare("INSERT OR IGNORE INTO settings (id) VALUES (1)").run();
 
@@ -185,6 +205,8 @@ for (const [name, definition] of [
   ["address", "TEXT"],
   ["preferred_payment_window", "TEXT"],
   ["credit_analysis_consent_at", "TEXT"],
+  ["income_type", "TEXT"],
+  ["declared_income_cents", "INTEGER"],
 ]) {
   if (!clientColumns.includes(name)) db.exec(`ALTER TABLE clients ADD COLUMN ${name} ${definition}`);
 }

@@ -3,6 +3,7 @@ import multer from "multer";
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { db, dataDirectory, transaction, audit } from "./database.js";
 import {
   hashPassword,
@@ -31,6 +32,32 @@ const upload = multer({
   fileFilter: (_req, file, callback) =>
     callback(null, /\.(xlsx|xlsm)$/i.test(file.originalname)),
 });
+const documentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+
+function encryptionKey() {
+  const value = process.env.APP_ENCRYPTION_KEY || "";
+  if (!/^[a-f0-9]{64}$/i.test(value)) throw new Error("Chave de criptografia documental não configurada.");
+  return Buffer.from(value, "hex");
+}
+
+function detectedDocumentMime(buffer) {
+  if (buffer.subarray(0, 5).toString() === "%PDF-") return "application/pdf";
+  if (buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return "image/jpeg";
+  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  return null;
+}
+
+function encryptDocument(buffer) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
+  return { encrypted: Buffer.concat([cipher.update(buffer), cipher.final()]), iv, authTag: cipher.getAuthTag() };
+}
+
+function decryptDocument(row) {
+  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), row.iv);
+  decipher.setAuthTag(row.auth_tag);
+  return Buffer.concat([decipher.update(row.encrypted_data), decipher.final()]);
+}
 
 app.disable("x-powered-by");
 if (process.env.TRUST_PROXY === "true") app.set("trust proxy", 1);
@@ -128,7 +155,8 @@ function behaviorProfileForClient(client) {
     FROM payments JOIN contracts ON contracts.id = payments.contract_id
     LEFT JOIN cycles ON cycles.id = payments.cycle_id
     WHERE contracts.client_id = ? AND payments.reversed_at IS NULL`).get(client.id);
-  return calculateBehaviorScore(client, { ...history, ...punctuality });
+  const verifiedIncomeDocuments = db.prepare("SELECT COUNT(*) AS total FROM client_documents WHERE client_id = ? AND document_type = 'renda' AND status = 'verified'").get(client.id).total;
+  return calculateBehaviorScore(client, { ...history, ...punctuality, verifiedIncomeDocuments });
 }
 
 function handle(handler) {
@@ -641,7 +669,7 @@ app.post(
     const name = cleanText(req.body.name, 120, true);
     const result = db
       .prepare(
-        `INSERT INTO clients (name, document, phone, email, birth_date, occupation, address, preferred_payment_window, credit_analysis_consent_at, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO clients (name, document, phone, email, birth_date, occupation, address, preferred_payment_window, credit_analysis_consent_at, income_type, declared_income_cents, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         name,
@@ -653,6 +681,8 @@ app.post(
         cleanText(req.body.address, 300),
         cleanText(req.body.preferredPaymentWindow, 20),
         req.body.creditAnalysisConsent === true ? new Date().toISOString() : null,
+        cleanText(req.body.incomeType, 30),
+        Math.max(0, Number(req.body.declaredIncomeCents || 0)),
         cleanText(req.body.notes, 1000),
       );
     audit(
@@ -684,9 +714,11 @@ app.patch(
       address: cleanText(req.body.address, 300),
       preferredPaymentWindow: cleanText(req.body.preferredPaymentWindow, 20),
       consentAt: req.body.creditAnalysisConsent === true ? current.credit_analysis_consent_at || new Date().toISOString() : null,
+      incomeType: cleanText(req.body.incomeType, 30),
+      declaredIncomeCents: Math.max(0, Number(req.body.declaredIncomeCents || 0)),
     };
     db.prepare(
-      "UPDATE clients SET name = ?, document = ?, phone = ?, email = ?, birth_date = ?, occupation = ?, address = ?, preferred_payment_window = ?, credit_analysis_consent_at = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      "UPDATE clients SET name = ?, document = ?, phone = ?, email = ?, birth_date = ?, occupation = ?, address = ?, preferred_payment_window = ?, credit_analysis_consent_at = ?, income_type = ?, declared_income_cents = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
     ).run(
       name,
       values.document,
@@ -697,6 +729,8 @@ app.patch(
       values.address,
       values.preferredPaymentWindow,
       values.consentAt,
+      values.incomeType,
+      values.declaredIncomeCents,
       values.notes,
       clientId,
     );
@@ -713,6 +747,58 @@ app.patch(
   }),
 );
 
+app.get("/api/clients/:id/documents", requireAuth, handle((req, res) => {
+  const clientId = positiveInteger(Number(req.params.id), "Cliente");
+  if (!db.prepare("SELECT id FROM clients WHERE id = ?").get(clientId)) throw new Error("Cliente não encontrado.");
+  const documents = db.prepare(`SELECT id, client_id, document_type, original_name, mime_type, size_bytes, status, review_note, expires_on, created_at
+    FROM client_documents WHERE client_id = ? ORDER BY created_at DESC, id DESC`).all(clientId);
+  res.json({ documents });
+}));
+
+app.post("/api/clients/:id/documents", requireAuth, documentUpload.single("file"), (req, res) => {
+  try {
+    const clientId = positiveInteger(Number(req.params.id), "Cliente");
+    if (!db.prepare("SELECT id FROM clients WHERE id = ?").get(clientId)) throw new Error("Cliente não encontrado.");
+    if (!req.file?.buffer?.length) throw new Error("Selecione um documento.");
+    const documentType = cleanText(req.body.documentType, 20, true);
+    if (!["identidade", "endereco", "renda", "outro"].includes(documentType)) throw new Error("Tipo documental inválido.");
+    const mimeType = detectedDocumentMime(req.file.buffer);
+    if (!mimeType) throw new Error("Envie somente PDF, JPG ou PNG válido.");
+    const { encrypted, iv, authTag } = encryptDocument(req.file.buffer);
+    const inserted = db.prepare(`INSERT INTO client_documents
+      (client_id, document_type, original_name, mime_type, size_bytes, encrypted_data, iv, auth_tag, expires_on, uploaded_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(clientId, documentType, cleanText(req.file.originalname, 180, true), mimeType, req.file.size, encrypted, iv, authTag, cleanText(req.body.expiresOn, 10), req.user.id);
+    const id = Number(inserted.lastInsertRowid);
+    audit(req.user.id, "client_document.uploaded", "client_document", id, { clientId, documentType, mimeType, sizeBytes: req.file.size });
+    res.status(201).json({ id, status: "pending" });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Documento inválido." });
+  }
+});
+
+app.get("/api/client-documents/:id/download", requireAuth, handle((req, res) => {
+  const id = positiveInteger(Number(req.params.id), "Documento");
+  const row = db.prepare("SELECT * FROM client_documents WHERE id = ?").get(id);
+  if (!row) throw new Error("Documento não encontrado.");
+  const safeName = row.original_name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
+  res.setHeader("Content-Type", row.mime_type);
+  res.setHeader("Content-Disposition", `attachment; filename=\"${safeName}\"`);
+  res.setHeader("Cache-Control", "no-store");
+  res.send(decryptDocument(row));
+}));
+
+app.patch("/api/client-documents/:id", requireAuth, handle((req, res) => {
+  const id = positiveInteger(Number(req.params.id), "Documento");
+  const status = cleanText(req.body.status, 20, true);
+  if (!["verified", "rejected"].includes(status)) throw new Error("Revisão documental inválida.");
+  const result = db.prepare(`UPDATE client_documents SET status = ?, review_note = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`)
+    .run(status, cleanText(req.body.reviewNote, 500), req.user.id, id);
+  if (!result.changes) throw new Error("Documento não encontrado.");
+  audit(req.user.id, `client_document.${status}`, "client_document", id, { reviewNote: cleanText(req.body.reviewNote, 500) });
+  res.json({ id, status });
+}));
+
 app.get("/api/contracts", requireAuth, (req, res) => {
   const rows = db
     .prepare(
@@ -724,7 +810,9 @@ app.get("/api/contracts", requireAuth, (req, res) => {
       COALESCE((SELECT MAX(0, cycles.fee_cents - COALESCE((SELECT SUM(payments.fee_cents) FROM payments WHERE payments.cycle_id = cycles.id AND payments.reversed_at IS NULL), 0)) FROM cycles WHERE cycles.contract_id = contracts.id AND cycles.status = 'open' ORDER BY cycles.cycle_number DESC LIMIT 1), 0) AS current_fee_cents,
       COALESCE((SELECT COALESCE((SELECT SUM(payments.fee_cents) FROM payments WHERE payments.cycle_id = cycles.id AND payments.reversed_at IS NULL), 0) FROM cycles WHERE cycles.contract_id = contracts.id AND cycles.status = 'open' ORDER BY cycles.cycle_number DESC LIMIT 1), 0) AS current_fee_paid_cents
     FROM contracts JOIN clients ON clients.id = contracts.client_id
-    ORDER BY CASE WHEN contracts.status = 'open' THEN 0 ELSE 1 END, contracts.due_date
+    ORDER BY
+      CASE WHEN contracts.legacy_reference GLOB '[0-9]*' THEN CAST(contracts.legacy_reference AS INTEGER) ELSE contracts.id END,
+      contracts.id
   `,
     )
     .all()

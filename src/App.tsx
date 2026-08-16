@@ -44,6 +44,7 @@ import {
   LoanRequest,
   EligiblePaidContract,
   RiskProfile,
+  ClientDocument,
   Settings as SystemSettings,
   User,
 } from "./api";
@@ -57,6 +58,7 @@ type Modal =
   | "receipts"
   | "score"
   | "loanRequests"
+  | "documents"
   | "contract"
   | "payment"
   | "renegotiate"
@@ -337,6 +339,10 @@ function App() {
   const [renewalList, setRenewalList] = useState<RenewalListItem[]>([]);
   const [loanRequests, setLoanRequests] = useState<LoanRequest[]>([]);
   const [eligiblePaidContracts, setEligiblePaidContracts] = useState<EligiblePaidContract[]>([]);
+  const [paymentContractId, setPaymentContractId] = useState<number | null>(null);
+  const [paymentIntent, setPaymentIntent] = useState<"regular" | "payoff">("regular");
+  const [documentClientId, setDocumentClientId] = useState<number | null>(null);
+  const [clientDocuments, setClientDocuments] = useState<ClientDocument[]>([]);
   const [modal, setModal] = useState<Modal>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -398,7 +404,7 @@ function App() {
     setBusy(true);
     setError("");
     const form = new FormData(event.currentTarget);
-    const data = { ...Object.fromEntries(form), creditAnalysisConsent: form.get("creditAnalysisConsent") === "on" };
+    const data = { ...Object.fromEntries(form), declaredIncomeCents: toCents(form.get("declaredIncome")), creditAnalysisConsent: form.get("creditAnalysisConsent") === "on" };
     try {
       await api.createClient(data);
       await loadData();
@@ -418,7 +424,7 @@ function App() {
     setBusy(true);
     setError("");
     const form = new FormData(event.currentTarget);
-    const data = { ...Object.fromEntries(form), creditAnalysisConsent: form.get("creditAnalysisConsent") === "on" };
+    const data = { ...Object.fromEntries(form), declaredIncomeCents: toCents(form.get("declaredIncome")), creditAnalysisConsent: form.get("creditAnalysisConsent") === "on" };
     try {
       await api.updateClient(editingClientId, data);
       await loadData();
@@ -439,8 +445,8 @@ function App() {
     try {
       const result = await api.assessCredit(scoreClientId, {
         monthlyIncomeCents: toCents(data.get("income")),
-        monthlyExpensesCents: toCents(data.get("expenses")),
-        existingDebtCents: toCents(data.get("debt")),
+        monthlyExpensesCents: 0,
+        existingDebtCents: 0,
         requestedCents: toCents(data.get("requested")),
         employmentMonths: Number(data.get("employmentMonths")),
       });
@@ -464,6 +470,38 @@ function App() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Falha ao calcular o indicador interno.");
     }
+  }
+  async function openDocuments(clientId: number) {
+    setDocumentClientId(clientId);
+    setModal("documents");
+    setError("");
+    try {
+      setClientDocuments((await api.clientDocuments(clientId)).documents);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha ao carregar documentos.");
+    }
+  }
+  async function submitClientDocument(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!documentClientId) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setBusy(true);
+    setError("");
+    try {
+      await api.uploadClientDocument(documentClientId, form);
+      setClientDocuments((await api.clientDocuments(documentClientId)).documents);
+      formElement.reset();
+      notify("Documento criptografado e enviado para conferência.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha ao enviar documento.");
+    } finally { setBusy(false); }
+  }
+  async function reviewDocument(id: number, status: "verified" | "rejected") {
+    if (!documentClientId) return;
+    await api.reviewClientDocument(id, status);
+    setClientDocuments((await api.clientDocuments(documentClientId)).documents);
+    notify(status === "verified" ? "Documento verificado." : "Documento recusado.");
   }
   async function submitContract(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -507,6 +545,8 @@ function App() {
       });
       await loadData();
       setModal(null);
+      setPaymentContractId(null);
+      setPaymentIntent("regular");
       notify(
         result.nextDueDate
           ? `Renovado até ${dateBr(result.nextDueDate)}.`
@@ -773,9 +813,14 @@ function App() {
   };
   const dueContracts = dashboard?.contracts ?? [];
   const selectedForPayment = useMemo(
-    () => contracts.find((item) => item.status === "open"),
-    [contracts],
+    () => contracts.find((item) => item.id === paymentContractId && item.status === "open") || contracts.find((item) => item.status === "open"),
+    [contracts, paymentContractId],
   );
+  const openPayment = (contractId?: number, intent: "regular" | "payoff" = "regular") => {
+    setPaymentContractId(contractId || null);
+    setPaymentIntent(intent);
+    setModal("payment");
+  };
 
   if (booting)
     return (
@@ -930,7 +975,7 @@ function App() {
                         <th>PRINCIPAL</th>
                         <th>JUROS</th>
                         <th>TOTAL DO CICLO</th>
-                        <th>HISTÓRICO</th>
+                        <th>AÇÕES</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -963,14 +1008,11 @@ function App() {
                               )}
                             </strong>
                           </td>
-                          <td data-label="Histórico">
-                            <button
-                              className="more"
-                              onClick={() => openHistory(contract.id)}
-                              aria-label="Ver histórico"
-                            >
-                              <Eye />
-                            </button>
+                          <td data-label="Ações">
+                            <div className="contract-actions">
+                              <button className="payoff-button" onClick={() => openPayment(contract.id, "payoff")}><CheckCircle2 />Quitar</button>
+                              <button className="more" onClick={() => openHistory(contract.id)} aria-label="Ver histórico"><Eye /></button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1004,7 +1046,7 @@ function App() {
                 </button>
                 <button
                   disabled={!contracts.some((item) => item.status === "open")}
-                  onClick={() => setModal("payment")}
+                  onClick={() => openPayment()}
                 >
                   <span className="q-green">
                     <CircleDollarSign />
@@ -1189,7 +1231,7 @@ function App() {
                 </article>
               )) : <div className="empty compact"><CircleDollarSign /><span>Nenhum pagamento registrado.</span></div>}
             </div>
-            <div className="dialog-actions"><button onClick={() => setModal(null)}>Fechar</button><button className="primary-action" disabled={!contracts.some((item) => item.status === "open")} onClick={() => setModal("payment")}><Plus />Registrar</button></div>
+            <div className="dialog-actions"><button onClick={() => setModal(null)}>Fechar</button><button className="primary-action" disabled={!contracts.some((item) => item.status === "open")} onClick={() => openPayment()}><Plus />Registrar</button></div>
           </div>
         </Dialog>
       )}
@@ -1251,6 +1293,26 @@ function App() {
           </div>
         </Dialog>
       )}
+      {modal === "documents" && documentClientId && (
+        <Dialog title="Dossiê documental" subtitle={`${clients.find((item) => item.id === documentClientId)?.name || "Cliente"} · arquivos privados e criptografados`} close={() => { setModal("clients"); setError(""); }}>
+          <div className="history-body">
+            <form className="dialog-form document-upload" onSubmit={submitClientDocument}>
+              <div className="form-warning"><ShieldCheck />Colete somente o necessário. Aceitos PDF, JPG e PNG de até 5 MB.</div>
+              <label>Tipo do documento<select name="documentType" required><option value="identidade">Identidade · CNH ou RG</option><option value="endereco">Comprovante de endereço</option><option value="renda">Comprovante de renda</option><option value="outro">Outro documento necessário</option></select></label>
+              <div className="form-row"><label>Arquivo<input name="file" type="file" accept="application/pdf,image/jpeg,image/png" required /></label><label>Validade, se houver<input name="expiresOn" type="date" /></label></div>
+              {error && <div className="form-error">{error}</div>}
+              <div className="dialog-actions"><button className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" />}Enviar com segurança</button></div>
+            </form>
+            <h3>Documentos recebidos</h3>
+            <div className="history-list">
+              {clientDocuments.length ? clientDocuments.map((document) => <article key={document.id}>
+                <div><strong>{document.document_type} · {document.original_name}</strong><small>{Math.ceil(document.size_bytes / 1024)} KB · {document.status}{document.expires_on ? ` · validade ${dateBr(document.expires_on)}` : ""}</small></div>
+                <div className="payment-actions"><a className="receipt-button" href={`/api/client-documents/${document.id}/download`}><Eye />Abrir</a>{document.status === "pending" && <><button className="receipt-button" onClick={() => void reviewDocument(document.id, "verified")}>Verificar</button><button className="reverse-button" onClick={() => void reviewDocument(document.id, "rejected")}>Recusar</button></>}</div>
+              </article>) : <div className="empty compact"><FileCheck2 /><span>Nenhum documento enviado.</span></div>}
+            </div>
+          </div>
+        </Dialog>
+      )}
       {modal === "clients" && (
         <Dialog
           title="Clientes"
@@ -1265,6 +1327,7 @@ function App() {
                     <div><strong>{client.name}</strong><small>{client.phone || "Sem telefone"} · {client.contract_count} contrato(s) · indicador {client.behavior_score ?? 500}/1000</small></div>
                     <div className="payment-actions">
                       <button className="receipt-button" onClick={() => void openRiskProfile(client.id)}><ShieldCheck />Risco</button>
+                      <button className="receipt-button" onClick={() => void openDocuments(client.id)}><FileCheck2 />Dossiê</button>
                       <button className="receipt-button" onClick={() => setEditingClientId(client.id)}>Editar</button>
                     </div>
                   </article>
@@ -1281,6 +1344,7 @@ function App() {
                 <div className="form-row"><label>CPF ou documento<input name="document" maxLength={30} defaultValue={client.document || ""} /></label><label>Telefone<input name="phone" maxLength={30} defaultValue={client.phone || ""} /></label></div>
                 <label>E-mail<input name="email" type="email" maxLength={160} defaultValue={client.email || ""} /></label>
                 <div className="form-row"><label>Data de nascimento<input name="birthDate" type="date" defaultValue={client.birth_date || ""} /></label><label>Profissão ou atividade<input name="occupation" maxLength={120} defaultValue={client.occupation || ""} /></label></div>
+                <div className="form-row"><label>Origem da renda<select name="incomeType" defaultValue={client.income_type || ""}><option value="">Selecione</option><option value="clt">CLT</option><option value="autonomo">Autônomo</option><option value="beneficio">Benefício ou aposentadoria</option><option value="empresario">Empresário/MEI</option><option value="outro">Outra</option></select></label><label>Remuneração declarada<input name="declaredIncome" inputMode="decimal" defaultValue={client.declared_income_cents ? (client.declared_income_cents / 100).toFixed(2) : ""} /></label></div>
                 <label>Endereço<input name="address" maxLength={300} defaultValue={client.address || ""} /></label>
                 <label>Preferência de pagamento<select name="preferredPaymentWindow" defaultValue={client.preferred_payment_window || "flexivel"}><option value="dia_15">Dia 15</option><option value="fim_mes">Final do mês</option><option value="flexivel">Flexível</option></select></label>
                 <label className="check-label"><input name="creditAnalysisConsent" type="checkbox" defaultChecked={Boolean(client.credit_analysis_consent_at)} /><span><strong>Ciência sobre análise interna</strong><small>Registra que os dados serão usados para indicador de risco explicável.</small></span></label>
@@ -1321,6 +1385,7 @@ function App() {
               <input name="email" type="email" maxLength={160} />
             </label>
             <div className="form-row"><label>Data de nascimento<input name="birthDate" type="date" /></label><label>Profissão ou atividade<input name="occupation" maxLength={120} /></label></div>
+            <div className="form-row"><label>Origem da renda<select name="incomeType" defaultValue=""><option value="">Selecione</option><option value="clt">CLT</option><option value="autonomo">Autônomo</option><option value="beneficio">Benefício ou aposentadoria</option><option value="empresario">Empresário/MEI</option><option value="outro">Outra</option></select></label><label>Remuneração declarada<input name="declaredIncome" inputMode="decimal" /></label></div>
             <label>Endereço<input name="address" maxLength={300} /></label>
             <label>Preferência de pagamento<select name="preferredPaymentWindow" defaultValue="flexivel"><option value="dia_15">Dia 15</option><option value="fim_mes">Final do mês</option><option value="flexivel">Flexível</option></select></label>
             <label className="check-label"><input name="creditAnalysisConsent" type="checkbox" /><span><strong>Ciência sobre análise interna</strong><small>O cliente foi informado sobre o uso dos dados no indicador interno explicável.</small></span></label>
@@ -1360,8 +1425,7 @@ function App() {
                 {!scoreResult ? (
             <form className="dialog-form" onSubmit={submitCreditAssessment}>
               <div className="form-warning"><AlertTriangle />Informe apenas dados confirmados pelo cliente. Nenhuma aprovação será automática.</div>
-              <div className="form-row"><label>Renda mensal<input name="income" inputMode="decimal" required placeholder="Ex.: 5.000,00" /></label><label>Despesas mensais<input name="expenses" inputMode="decimal" required placeholder="Ex.: 2.000,00" /></label></div>
-              <div className="form-row"><label>Parcelas/dívidas mensais<input name="debt" inputMode="decimal" defaultValue="0" /></label><label>Valor solicitado<input name="requested" inputMode="decimal" required /></label></div>
+              <div className="form-row"><label>Remuneração comprovada<input name="income" inputMode="decimal" required placeholder="Ex.: 5.000,00" /></label><label>Valor solicitado<input name="requested" inputMode="decimal" required /></label></div>
               <label>Há quantos meses possui essa renda?<input name="employmentMonths" type="number" min="0" max="600" required /></label>
               {error && <div className="form-error">{error}</div>}
               <div className="dialog-actions"><button className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" />}Recalcular análise</button></div>
@@ -1458,10 +1522,12 @@ function App() {
       )}
       {modal === "payment" && selectedForPayment && (
         <Dialog
-          title="Registrar pagamento"
-          subtitle="O sistema aplica em multa, juros e principal, nessa ordem."
+          title={paymentIntent === "payoff" ? "Quitar contrato" : "Registrar pagamento"}
+          subtitle={paymentIntent === "payoff" ? "Confira o total calculado antes de encerrar o contrato." : "O sistema aplica em multa, juros e principal, nessa ordem."}
           close={() => {
             setModal(null);
+            setPaymentContractId(null);
+            setPaymentIntent("regular");
             setError("");
           }}
         >
@@ -1494,6 +1560,7 @@ function App() {
                   step="0.01"
                   required
                   autoFocus
+                  defaultValue={paymentIntent === "payoff" ? ((selectedForPayment.balance_principal_cents + selectedForPayment.current_interest_cents + selectedForPayment.current_fee_cents) / 100).toFixed(2) : undefined}
                 />
               </label>
               <label>
@@ -1515,7 +1582,7 @@ function App() {
                 <option value="outro">Outro</option>
               </select>
             </label>
-            <label className="check-label">
+            {paymentIntent !== "payoff" && <label className="check-label">
               <input name="renew" type="checkbox" />
               <span>
                 <strong>Renovar por mais 30 dias</strong>
@@ -1523,7 +1590,7 @@ function App() {
                   Exige quitação exata dos juros e preserva o principal.
                 </small>
               </span>
-            </label>
+            </label>}
             <label>
               Observação
               <input name="note" maxLength={500} />
@@ -1534,7 +1601,7 @@ function App() {
                 Cancelar
               </button>
               <button className="primary-action" disabled={busy}>
-                {busy && <LoaderCircle className="spin" />}Confirmar pagamento
+                {busy && <LoaderCircle className="spin" />}{paymentIntent === "payoff" ? "Confirmar quitação" : "Confirmar pagamento"}
               </button>
             </div>
           </form>
