@@ -980,12 +980,46 @@ app.get("/api/client-portal/:token", handle((req, res) => {
     COALESCE((SELECT interest_cents - COALESCE((SELECT SUM(interest_cents) FROM payments WHERE cycle_id = cycles.id AND reversed_at IS NULL), 0) FROM cycles WHERE contract_id = contracts.id AND status = 'open' ORDER BY cycle_number DESC LIMIT 1), 0) AS current_interest_cents
     FROM contracts WHERE contracts.client_id = ? GROUP BY contracts.id ORDER BY contracts.start_date DESC, contracts.id DESC`).all(client.id);
   const requests = db.prepare("SELECT id, source_contract_id, requested_cents, requested_at, preferred_window, purpose, status, decision_note FROM loan_requests WHERE client_id = ? ORDER BY created_at DESC").all(client.id);
+  const actionRequests = db.prepare("SELECT id, contract_id, action_type, note, status, decision_note, created_at FROM contract_action_requests WHERE client_id = ? ORDER BY created_at DESC").all(client.id);
   const eligibleContracts = db.prepare(`SELECT contracts.id, contracts.principal_cents, MAX(payments.payment_date) AS paid_at
     FROM contracts JOIN payments ON payments.contract_id = contracts.id AND payments.reversed_at IS NULL
     LEFT JOIN loan_requests ON loan_requests.source_contract_id = contracts.id
     WHERE contracts.client_id = ? AND contracts.status = 'paid' AND loan_requests.id IS NULL
     GROUP BY contracts.id ORDER BY paid_at DESC`).all(client.id);
-  res.json({ client: { id: client.id, name: client.name, preferredPaymentWindow: client.preferred_payment_window }, contracts, requests, eligibleContracts });
+  res.json({ client: { id: client.id, name: client.name, preferredPaymentWindow: client.preferred_payment_window }, contracts, requests, actionRequests, eligibleContracts });
+}));
+
+app.post("/api/client-portal/:token/action-requests", handle((req, res) => {
+  const client = clientByAccessToken(req.params.token);
+  if (!client) throw new Error("Acesso inválido ou expirado. Solicite um novo link.");
+  const contractId = positiveInteger(Number(req.body.contractId), "Contrato");
+  const actionType = cleanText(req.body.actionType, 30, true);
+  if (!["payoff", "interest_renewal", "renegotiation"].includes(actionType)) throw new Error("Solicitação inválida.");
+  if (!db.prepare("SELECT id FROM contracts WHERE id = ? AND client_id = ? AND status = 'open'").get(contractId, client.id)) throw new Error("Contrato aberto não encontrado.");
+  if (db.prepare("SELECT id FROM contract_action_requests WHERE contract_id = ? AND action_type = ? AND status = 'pending'").get(contractId, actionType)) throw new Error("Já existe uma solicitação igual aguardando análise.");
+  const inserted = db.prepare("INSERT INTO contract_action_requests (client_id, contract_id, action_type, note) VALUES (?, ?, ?, ?)")
+    .run(client.id, contractId, actionType, cleanText(req.body.note, 500));
+  audit(null, "client_portal.action_requested", "contract_action_request", Number(inserted.lastInsertRowid), { clientId: client.id, contractId, actionType });
+  res.status(201).json({ id: Number(inserted.lastInsertRowid), status: "pending" });
+}));
+
+app.get("/api/action-requests", requireAuth, (_req, res) => {
+  const requests = db.prepare(`SELECT contract_action_requests.*, clients.name AS client_name
+    FROM contract_action_requests JOIN clients ON clients.id = contract_action_requests.client_id
+    ORDER BY CASE contract_action_requests.status WHEN 'pending' THEN 0 ELSE 1 END, contract_action_requests.created_at DESC`).all();
+  res.json({ requests });
+});
+
+app.patch("/api/action-requests/:id", requireAuth, handle((req, res) => {
+  const id = positiveInteger(Number(req.params.id), "Solicitação");
+  const status = cleanText(req.body.status, 20, true);
+  if (!["accepted", "rejected", "completed"].includes(status)) throw new Error("Decisão inválida.");
+  const current = db.prepare("SELECT id FROM contract_action_requests WHERE id = ? AND status = 'pending'").get(id);
+  if (!current) throw new Error("Solicitação pendente não encontrada.");
+  db.prepare("UPDATE contract_action_requests SET status = ?, decision_note = ?, decided_by = ?, decided_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    .run(status, cleanText(req.body.decisionNote, 500), req.user.id, id);
+  audit(req.user.id, "contract_action_request.decided", "contract_action_request", id, { status });
+  res.json({ id, status });
 }));
 
 app.post("/api/client-portal/:token/loan-requests", handle((req, res) => {

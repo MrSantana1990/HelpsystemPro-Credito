@@ -230,7 +230,19 @@ export interface ClientPortalData {
   client: { id: number; name: string; preferredPaymentWindow?: string };
   contracts: Array<Pick<Contract, "id" | "principal_cents" | "interest_rate" | "start_date" | "due_date" | "status" | "balance_principal_cents" | "current_interest_cents">>;
   requests: Array<Pick<LoanRequest, "id" | "source_contract_id" | "requested_cents" | "requested_at" | "preferred_window" | "purpose" | "status" | "decision_note">>;
+  actionRequests: ContractActionRequest[];
   eligibleContracts: Array<{ id: number; principal_cents: number; paid_at: string }>;
+}
+export interface ContractActionRequest {
+  id: number;
+  client_id?: number;
+  client_name?: string;
+  contract_id: number;
+  action_type: "payoff" | "interest_renewal" | "renegotiation";
+  note?: string;
+  status: "pending" | "accepted" | "rejected" | "completed" | "cancelled";
+  decision_note?: string;
+  created_at: string;
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -310,6 +322,9 @@ export const api = {
   createClientAccessLink: (clientId: number) => request<ClientAccessLink>(`/clients/${clientId}/access-link`, { method: "POST" }),
   clientPortal: (token: string) => request<ClientPortalData>(`/client-portal/${token}`),
   clientPortalLoanRequest: (token: string, data: object) => request<{ id: number; status: string }>(`/client-portal/${token}/loan-requests`, { method: "POST", body: JSON.stringify(data) }),
+  clientPortalActionRequest: (token: string, data: object) => request<{ id: number; status: string }>(`/client-portal/${token}/action-requests`, { method: "POST", body: JSON.stringify(data) }),
+  actionRequests: () => request<{ requests: ContractActionRequest[] }>("/action-requests"),
+  decideActionRequest: (id: number, data: object) => request<{ id: number; status: string }>(`/action-requests/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   createContract: (data: object) =>
     request<{
       id: number;
