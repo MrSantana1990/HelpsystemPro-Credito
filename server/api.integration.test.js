@@ -96,6 +96,18 @@ describe("API operacional", () => {
       name: "Cliente Integração Atualizado",
       phone: "11999990000",
     });
+    const assessment = await request(`/clients/${client.id}/credit-assessments`, {
+      method: "POST",
+      body: JSON.stringify({
+        monthlyIncomeCents: 500_000,
+        monthlyExpensesCents: 180_000,
+        existingDebtCents: 20_000,
+        requestedCents: 100_000,
+        employmentMonths: 36,
+      }),
+    });
+    expect(assessment).toMatchObject({ riskBand: "moderado" });
+    expect(assessment.recommendedLimitCents).toBeGreaterThan(0);
 
     const contract = await request("/contracts", {
       method: "POST",
@@ -228,5 +240,7 @@ describe("API operacional", () => {
       daily_fee_cents: 2_000,
       daily_fee_enabled: 1,
     });
+    expect((await request("/payments")).payments.length).toBeGreaterThan(0);
+    expect((await request("/renewals")).renewals.length).toBeGreaterThan(0);
   });
 });

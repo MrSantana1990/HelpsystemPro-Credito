@@ -42,6 +42,8 @@ Por trás dessa simplicidade, o produto manterá lançamentos financeiros, vínc
 - importação assistida da planilha, com prévia, revisão e bloqueio de duplicidade;
 - auditoria, backup verificado e restauração offline;
 - dashboard responsivo para computador e celular;
+- menus operacionais de clientes, contratos, pagamentos, renovações e comprovantes;
+- score interno explicável, com faixa de risco e limite recomendado por cliente;
 - Docker, documentação operacional e validação automática no GitHub.
 
 > O núcleo é operacional para uma empresa e uma instância. Antes de cadastrar dados reais na internet, conclua o [`checklist de produção`](docs/CHECKLIST-PRODUCAO.md), faça a validação jurídica e mantenha o acesso privado ou protegido por uma segunda camada de autenticação.
@@ -93,7 +95,7 @@ flowchart LR
 - **Renovações:** ciclos vinculados sem apagar o contrato original.
 - **Cobrança:** lembretes por WhatsApp, e-mail, SMS ou push.
 - **Comprovantes:** recibo imprimível já disponível; anexos e PDF assinado são evolução.
-- **Risco:** limite recomendado e políticas de concessão em uma fase futura.
+- **Risco:** score interno explicável e limite recomendado já disponíveis; consulta a bureaus externos fica para uma integração futura.
 - **Gestão:** relatórios, fluxo de caixa, auditoria e múltiplas empresas.
 
 ## 🚀 Demonstração local
@@ -129,7 +131,8 @@ npm run build
 | 4 | Avisos automáticos, anexos e portal do cliente | 🟡 Próxima fase |
 | 5 | Pix por parceiro autorizado e conciliação | ⚪ Planejada |
 | 6 | Multiempresa, planos e administração SaaS | ⚪ Planejada |
-| 7 | Avaliação de risco, garantias e seguros | ⚪ Futura |
+| 7 | Score interno | ✅ Entregue |
+| 8 | Bureau externo, garantias e seguros | ⚪ Futura |
 
 Consulte [`docs/VISAO-DO-PRODUTO.md`](docs/VISAO-DO-PRODUTO.md) para o detalhamento.
 

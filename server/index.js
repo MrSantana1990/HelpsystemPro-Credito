@@ -13,6 +13,7 @@ import {
 import { accruedDailyFee, addDays, allocate, interestFor } from "./finance.js";
 import { previewLegacyWorkbook } from "./import-legacy.js";
 import { createConsistentBackup } from "./backup.js";
+import { calculateInternalCreditScore } from "./credit-score.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const app = express();
@@ -440,13 +441,97 @@ app.get("/api/clients", requireAuth, (req, res) => {
   const rows = db
     .prepare(
       `
-    SELECT clients.*, COUNT(contracts.id) AS contract_count
+    SELECT clients.*, COUNT(contracts.id) AS contract_count,
+      (SELECT score FROM credit_assessments WHERE client_id = clients.id ORDER BY id DESC LIMIT 1) AS credit_score,
+      (SELECT risk_band FROM credit_assessments WHERE client_id = clients.id ORDER BY id DESC LIMIT 1) AS risk_band,
+      (SELECT recommended_limit_cents FROM credit_assessments WHERE client_id = clients.id ORDER BY id DESC LIMIT 1) AS recommended_limit_cents
     FROM clients LEFT JOIN contracts ON contracts.client_id = clients.id
     GROUP BY clients.id ORDER BY clients.name
   `,
     )
     .all();
   res.json({ clients: rows });
+});
+
+app.post(
+  "/api/clients/:id/credit-assessments",
+  requireAuth,
+  handle((req, res) => {
+    const clientId = positiveInteger(Number(req.params.id), "Cliente");
+    const client = db.prepare("SELECT id FROM clients WHERE id = ?").get(clientId);
+    if (!client) throw new Error("Cliente não encontrado.");
+    const history = db
+      .prepare(
+        `SELECT
+          SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS paidContracts,
+          SUM(CASE WHEN status = 'renegotiated' THEN 1 ELSE 0 END) AS renegotiatedContracts,
+          SUM(CASE WHEN status = 'open' AND due_date < date('now') THEN 1 ELSE 0 END) AS overdueContracts
+         FROM contracts WHERE client_id = ?`,
+      )
+      .get(clientId);
+    const input = {
+      monthlyIncomeCents: positiveInteger(req.body.monthlyIncomeCents, "Renda mensal"),
+      monthlyExpensesCents: Math.max(0, Number(req.body.monthlyExpensesCents || 0)),
+      existingDebtCents: Math.max(0, Number(req.body.existingDebtCents || 0)),
+      requestedCents: positiveInteger(req.body.requestedCents, "Valor solicitado"),
+      employmentMonths: Math.max(0, Number(req.body.employmentMonths || 0)),
+    };
+    const result = calculateInternalCreditScore(input, history);
+    const inserted = db
+      .prepare(
+        `INSERT INTO credit_assessments
+          (client_id, monthly_income_cents, monthly_expenses_cents, existing_debt_cents, requested_cents, employment_months, score, recommended_limit_cents, risk_band, reasons_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        clientId,
+        input.monthlyIncomeCents,
+        input.monthlyExpensesCents,
+        input.existingDebtCents,
+        input.requestedCents,
+        input.employmentMonths,
+        result.score,
+        result.recommendedLimitCents,
+        result.riskBand,
+        JSON.stringify(result.reasons),
+        req.user.id,
+      );
+    audit(req.user.id, "credit.assessed", "client", clientId, {
+      assessmentId: Number(inserted.lastInsertRowid),
+      score: result.score,
+      riskBand: result.riskBand,
+      recommendedLimitCents: result.recommendedLimitCents,
+    });
+    res.status(201).json({ id: Number(inserted.lastInsertRowid), ...result });
+  }),
+);
+
+app.get("/api/payments", requireAuth, (_req, res) => {
+  const payments = db.prepare(`
+    SELECT payments.*, clients.name AS client_name, contracts.legacy_reference,
+      cycles.cycle_number
+    FROM payments
+    JOIN contracts ON contracts.id = payments.contract_id
+    JOIN clients ON clients.id = contracts.client_id
+    LEFT JOIN cycles ON cycles.id = payments.cycle_id
+    ORDER BY payments.payment_date DESC, payments.id DESC
+  `).all().map((payment) => ({
+    ...payment,
+    receiptCode: hashToken(`${payment.id}:${payment.contract_id}:${payment.amount_cents}:${payment.created_at}`).slice(0, 12).toUpperCase(),
+  }));
+  res.json({ payments });
+});
+
+app.get("/api/renewals", requireAuth, (_req, res) => {
+  const renewals = db.prepare(`
+    SELECT cycles.*, clients.name AS client_name, contracts.legacy_reference
+    FROM cycles
+    JOIN contracts ON contracts.id = cycles.contract_id
+    JOIN clients ON clients.id = contracts.client_id
+    WHERE cycles.cycle_number > 1
+    ORDER BY cycles.start_date DESC, cycles.id DESC
+  `).all();
+  res.json({ renewals });
 });
 
 app.post(
