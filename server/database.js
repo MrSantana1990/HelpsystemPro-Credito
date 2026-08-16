@@ -175,6 +175,20 @@ db.exec(`
 `);
 db.prepare("INSERT OR IGNORE INTO settings (id) VALUES (1)").run();
 
+const clientColumns = db
+  .prepare("PRAGMA table_info(clients)")
+  .all()
+  .map((column) => column.name);
+for (const [name, definition] of [
+  ["birth_date", "TEXT"],
+  ["occupation", "TEXT"],
+  ["address", "TEXT"],
+  ["preferred_payment_window", "TEXT"],
+  ["credit_analysis_consent_at", "TEXT"],
+]) {
+  if (!clientColumns.includes(name)) db.exec(`ALTER TABLE clients ADD COLUMN ${name} ${definition}`);
+}
+
 const contractColumns = db
   .prepare("PRAGMA table_info(contracts)")
   .all()

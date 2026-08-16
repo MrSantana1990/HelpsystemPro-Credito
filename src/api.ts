@@ -11,10 +11,18 @@ export interface Client {
   phone?: string;
   email?: string;
   notes?: string;
+  birth_date?: string;
+  occupation?: string;
+  address?: string;
+  preferred_payment_window?: string;
+  credit_analysis_consent_at?: string;
   contract_count: number;
   credit_score?: number;
   risk_band?: string;
   recommended_limit_cents?: number;
+  behavior_score?: number;
+  behavior_risk_band?: string;
+  behavior_limit_cents?: number;
 }
 export interface Contract {
   id: number;
@@ -146,6 +154,23 @@ export interface CreditAssessment {
   riskBand: string;
   reasons: string[];
 }
+export interface RiskProfile {
+  behavior: {
+    score: number;
+    riskBand: string;
+    recommendedLimitCents: number;
+    reasons: string[];
+    factors: Record<string, number>;
+  };
+  financial: null | {
+    score: number;
+    recommended_limit_cents: number;
+    risk_band: string;
+    reasons: string[];
+    created_at: string;
+  };
+  disclaimer: string;
+}
 export interface LoanRequest {
   id: number;
   client_id: number;
@@ -198,12 +223,12 @@ export const api = {
     }),
   dashboard: () => request<Dashboard>("/dashboard"),
   clients: () => request<{ clients: Client[] }>("/clients"),
-  createClient: (data: Record<string, string>) =>
+  createClient: (data: object) =>
     request<{ id: number }>("/clients", {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  updateClient: (id: number, data: Record<string, string>) =>
+  updateClient: (id: number, data: object) =>
     request<{ id: number; updated: boolean }>(`/clients/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -221,6 +246,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  riskProfile: (id: number) => request<RiskProfile>(`/clients/${id}/risk-profile`),
   createContract: (data: object) =>
     request<{
       id: number;

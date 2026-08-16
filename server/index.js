@@ -13,7 +13,7 @@ import {
 import { accruedDailyFee, addDays, allocate, interestFor } from "./finance.js";
 import { previewLegacyWorkbook } from "./import-legacy.js";
 import { createConsistentBackup } from "./backup.js";
-import { calculateInternalCreditScore } from "./credit-score.js";
+import { calculateBehaviorScore, calculateInternalCreditScore } from "./credit-score.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const app = express();
@@ -112,6 +112,23 @@ function getSettings() {
 
 function currentDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function behaviorProfileForClient(client) {
+  const history = db.prepare(`SELECT
+    SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS paidContracts,
+    SUM(CASE WHEN status = 'renegotiated' THEN 1 ELSE 0 END) AS renegotiatedContracts,
+    SUM(CASE WHEN status = 'review_required' THEN 1 ELSE 0 END) AS reviewContracts,
+    SUM(CASE WHEN status = 'open' AND due_date < date('now') THEN 1 ELSE 0 END) AS overdueContracts,
+    COALESCE(SUM(CASE WHEN status = 'paid' THEN principal_cents ELSE 0 END), 0) AS paidPrincipalCents
+    FROM contracts WHERE client_id = ?`).get(client.id);
+  const punctuality = db.prepare(`SELECT
+    SUM(CASE WHEN payments.payment_date <= cycles.due_date THEN 1 ELSE 0 END) AS onTimePayments,
+    SUM(CASE WHEN payments.payment_date > cycles.due_date THEN 1 ELSE 0 END) AS latePayments
+    FROM payments JOIN contracts ON contracts.id = payments.contract_id
+    LEFT JOIN cycles ON cycles.id = payments.cycle_id
+    WHERE contracts.client_id = ? AND payments.reversed_at IS NULL`).get(client.id);
+  return calculateBehaviorScore(client, { ...history, ...punctuality });
 }
 
 function handle(handler) {
@@ -449,9 +466,31 @@ app.get("/api/clients", requireAuth, (req, res) => {
     GROUP BY clients.id ORDER BY clients.name
   `,
     )
-    .all();
+    .all()
+    .map((client) => {
+      const behavior = behaviorProfileForClient(client);
+      return {
+        ...client,
+        behavior_score: behavior.score,
+        behavior_risk_band: behavior.riskBand,
+        behavior_limit_cents: behavior.recommendedLimitCents,
+      };
+    });
   res.json({ clients: rows });
 });
+
+app.get("/api/clients/:id/risk-profile", requireAuth, handle((req, res) => {
+  const clientId = positiveInteger(Number(req.params.id), "Cliente");
+  const client = db.prepare("SELECT * FROM clients WHERE id = ?").get(clientId);
+  if (!client) throw new Error("Cliente não encontrado.");
+  const behavior = behaviorProfileForClient(client);
+  const latestFinancial = db.prepare("SELECT score, recommended_limit_cents, risk_band, reasons_json, created_at FROM credit_assessments WHERE client_id = ? ORDER BY id DESC LIMIT 1").get(clientId);
+  res.json({
+    behavior,
+    financial: latestFinancial ? { ...latestFinancial, reasons: JSON.parse(latestFinancial.reasons_json) } : null,
+    disclaimer: "Indicador interno explicável. A decisão final exige revisão humana e não consulta Serasa, SPC ou SCR.",
+  });
+}));
 
 app.post(
   "/api/clients/:id/credit-assessments",
@@ -602,13 +641,18 @@ app.post(
     const name = cleanText(req.body.name, 120, true);
     const result = db
       .prepare(
-        `INSERT INTO clients (name, document, phone, email, notes) VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO clients (name, document, phone, email, birth_date, occupation, address, preferred_payment_window, credit_analysis_consent_at, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         name,
         cleanText(req.body.document, 30),
         cleanText(req.body.phone, 30),
         cleanText(req.body.email, 160),
+        cleanText(req.body.birthDate, 10),
+        cleanText(req.body.occupation, 120),
+        cleanText(req.body.address, 300),
+        cleanText(req.body.preferredPaymentWindow, 20),
+        req.body.creditAnalysisConsent === true ? new Date().toISOString() : null,
         cleanText(req.body.notes, 1000),
       );
     audit(
@@ -635,14 +679,24 @@ app.patch(
       phone: cleanText(req.body.phone, 30),
       email: cleanText(req.body.email, 160),
       notes: cleanText(req.body.notes, 1000),
+      birthDate: cleanText(req.body.birthDate, 10),
+      occupation: cleanText(req.body.occupation, 120),
+      address: cleanText(req.body.address, 300),
+      preferredPaymentWindow: cleanText(req.body.preferredPaymentWindow, 20),
+      consentAt: req.body.creditAnalysisConsent === true ? current.credit_analysis_consent_at || new Date().toISOString() : null,
     };
     db.prepare(
-      "UPDATE clients SET name = ?, document = ?, phone = ?, email = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      "UPDATE clients SET name = ?, document = ?, phone = ?, email = ?, birth_date = ?, occupation = ?, address = ?, preferred_payment_window = ?, credit_analysis_consent_at = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
     ).run(
       name,
       values.document,
       values.phone,
       values.email,
+      values.birthDate,
+      values.occupation,
+      values.address,
+      values.preferredPaymentWindow,
+      values.consentAt,
       values.notes,
       clientId,
     );
