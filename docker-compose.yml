@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8091
+      SESSION_HOURS: 12
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      APP_ORIGIN: ${APP_ORIGIN:-http://127.0.0.1:8091}
+      DATA_DIRECTORY: /app/data
+    ports:
+      - "127.0.0.1:8091:8091"
+    volumes:
+      - helpsystem_data:/app/data
+      - ./backups:/app/backups
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  helpsystem_data:
+

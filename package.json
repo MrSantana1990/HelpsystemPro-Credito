@@ -1,7 +1,7 @@
 {
   "name": "helpsystempro-credito",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,18 +15,21 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "express": "latest",
     "lucide-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
+    "multer": "^2.2.0",
     "react": "latest",
     "react-dom": "latest",
-    "express": "latest"
+    "read-excel-file": "^9.3.10",
+    "typescript": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
+    "@types/express": "latest",
+    "@types/multer": "^2.2.0",
+    "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "@types/express": "latest",
-    "@types/node": "latest",
     "vitest": "latest"
   }
 }

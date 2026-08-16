@@ -22,7 +22,7 @@ jobs:
       - name: Preparar Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Instalar dependências reproduzíveis
@@ -36,3 +36,16 @@ jobs:
 
       - name: Gerar versão de produção
         run: npm run build
+
+  container:
+    name: Imagem Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: validar
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v5
+
+      - name: Construir imagem de produção
+        run: docker build --tag helpsystempro-credito:test .
