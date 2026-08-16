@@ -233,6 +233,14 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS client_partner_links (
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    partner_id INTEGER NOT NULL REFERENCES partners(id),
+    source TEXT NOT NULL DEFAULT 'contract',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (client_id, partner_id)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_contracts_client ON contracts(client_id);
   CREATE INDEX IF NOT EXISTS idx_contracts_due ON contracts(due_date);
   CREATE INDEX IF NOT EXISTS idx_payments_contract ON payments(contract_id);
@@ -243,6 +251,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_onboarding_invites_status ON onboarding_invites(status, expires_at);
   CREATE INDEX IF NOT EXISTS idx_client_access_links_client ON client_access_links(client_id, active, expires_at);
   CREATE INDEX IF NOT EXISTS idx_contract_action_requests_status ON contract_action_requests(status, created_at);
+  CREATE INDEX IF NOT EXISTS idx_client_partner_links_partner ON client_partner_links(partner_id, client_id);
 `);
 db.prepare("INSERT OR IGNORE INTO settings (id) VALUES (1)").run();
 db.prepare("INSERT OR IGNORE INTO partners (name, notes) VALUES ('Rodrigo', 'Credor principal da carteira original.')").run();
@@ -259,6 +268,7 @@ for (const [name, definition] of [
   ["credit_analysis_consent_at", "TEXT"],
   ["income_type", "TEXT"],
   ["declared_income_cents", "INTEGER"],
+  ["income_details_json", "TEXT"],
 ]) {
   if (!clientColumns.includes(name)) db.exec(`ALTER TABLE clients ADD COLUMN ${name} ${definition}`);
 }
@@ -278,6 +288,8 @@ if (!contractColumns.includes("partner_id")) {
   db.exec("UPDATE contracts SET partner_id = (SELECT id FROM partners WHERE name = 'Rodrigo' LIMIT 1) WHERE partner_id IS NULL");
   db.exec("CREATE INDEX IF NOT EXISTS idx_contracts_partner ON contracts(partner_id)");
 }
+db.exec(`INSERT OR IGNORE INTO client_partner_links (client_id, partner_id, source)
+  SELECT DISTINCT client_id, partner_id, 'contract' FROM contracts WHERE partner_id IS NOT NULL`);
 
 const paymentColumns = db
   .prepare("PRAGMA table_info(payments)")

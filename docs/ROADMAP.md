@@ -36,6 +36,8 @@
 - cadastro mobile com documentos obrigatórios por origem de renda; ✅
 - área segura do tomador, separada da visão do credor; ✅
 - solicitação de novo empréstimo após quitação individual; ✅
+- cadastro adaptativo conforme origem da renda; ✅
+- vínculo organizado entre credores, clientes e contratos; ✅
 - modelos de mensagens automáticas; 🟡
 - consentimentos por canal;
 - filas e comprovantes de entrega;

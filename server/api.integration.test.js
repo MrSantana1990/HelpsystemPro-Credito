@@ -284,6 +284,9 @@ describe("API operacional", () => {
     onboardingForm.set("preferredPaymentWindow", "dia_15");
     onboardingForm.set("incomeType", "clt");
     onboardingForm.set("declaredIncomeCents", "350000");
+    onboardingForm.set("employerName", "Empresa Teste Ltda");
+    onboardingForm.set("employmentStartDate", "2024-02-01");
+    onboardingForm.set("incomeReferenceMonth", "2026-08");
     onboardingForm.set("consent", "true");
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
     onboardingForm.set("identity", new Blob([png], { type: "image/png" }), "cnh.png");
@@ -292,6 +295,11 @@ describe("API operacional", () => {
     const submitted = await request(`/onboarding/${inviteToken}`, { method: "POST", body: onboardingForm });
     expect(submitted).toMatchObject({ status: "submitted" });
     expect((await request(`/clients/${submitted.clientId}/documents`)).documents).toHaveLength(3);
+    expect((await request("/clients")).clients.find((item) => item.id === submitted.clientId)).toMatchObject({ partner_names: "Rodrigo", income_type: "clt" });
+    const secondPartner = await request("/partners", { method: "POST", body: JSON.stringify({ name: "Parceiro Integração", phone: "11977776666" }) });
+    expect((await request("/partners")).partners).toEqual(expect.arrayContaining([expect.objectContaining({ id: secondPartner.id, name: "Parceiro Integração" })]));
+    const partnerContract = await request("/contracts", { method: "POST", body: JSON.stringify({ clientId: submitted.clientId, partnerId: secondPartner.id, principalCents: 30_000, interestRate: 0.2, termDays: 30, startDate: "2026-08-16" }) });
+    expect((await request("/contracts")).contracts.find((item) => item.id === partnerContract.id)).toMatchObject({ partner_id: secondPartner.id, partner_name: "Parceiro Integração" });
     const clientAccess = await request(`/clients/${client.id}/access-link`, { method: "POST" });
     expect(clientAccess.publicUrl).toContain("/cliente/");
     expect(clientAccess.whatsappUrl).toContain("wa.me/5511999990000");

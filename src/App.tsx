@@ -394,18 +394,20 @@ function App() {
     setModal(target);
   };
   const loadData = useCallback(async () => {
-    const [dash, clientData, contractData, settingsData, alertData] = await Promise.all([
+    const [dash, clientData, contractData, settingsData, alertData, partnerData] = await Promise.all([
       api.dashboard(),
       api.clients(),
       api.contracts(),
       api.settings(),
       api.alerts(),
+      api.partnerSummary(),
     ]);
     setDashboard(dash);
     setClients(clientData.clients);
     setContracts(contractData.contracts);
     setSettings(settingsData.settings);
     setAlertsData(alertData);
+    setPartnerSummaries(partnerData.partners);
   }, []);
 
   useEffect(() => {
@@ -450,8 +452,16 @@ function App() {
     event.preventDefault();
     setBusy(true); setError(""); setPartnerInvite(null);
     const form = new FormData(event.currentTarget);
-    try { setPartnerInvite(await api.createPartnerInvite(partnerId, String(form.get("phone")))); }
+    try { setPartnerInvite(await api.createPartnerInvite(Number(form.get("partnerId")) || partnerId, String(form.get("phone")))); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao gerar convite."); }
+    finally { setBusy(false); }
+  }
+
+  async function submitPartner(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    const form = new FormData(event.currentTarget);
+    try { await api.createPartner(Object.fromEntries(form)); setPartnerSummaries((await api.partnerSummary()).partners); event.currentTarget.reset(); notify("Novo credor/parceiro cadastrado."); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao cadastrar parceiro."); }
     finally { setBusy(false); }
   }
 
@@ -561,6 +571,7 @@ function App() {
     try {
       const result = await api.createContract({
         clientId: Number(data.get("clientId")),
+        partnerId: Number(data.get("partnerId")),
         principalCents: toCents(data.get("principal")),
         interestRate: Number(String(data.get("rate")).replace(",", ".")) / 100,
         termDays: Number(data.get("termDays")),
@@ -1416,6 +1427,7 @@ function App() {
               {partnerInvite && <div className="invite-result"><span>Convite pronto e protegido</span><input readOnly value={partnerInvite.publicUrl} /><a href={partnerInvite.whatsappUrl} target="_blank" rel="noreferrer">Abrir WhatsApp e enviar</a></div>}
               {error && <div className="form-error">{error}</div>}
             </section>)}
+            <form className="partner-create-form" onSubmit={submitPartner}><div><strong>Adicionar outro credor</strong><small>Cada contrato e convite ficará vinculado ao parceiro escolhido.</small></div><input name="name" placeholder="Nome do parceiro" required maxLength={120} /><input name="phone" type="tel" placeholder="WhatsApp, opcional" maxLength={30} /><button className="primary-action" disabled={busy}><Plus />Adicionar</button></form>
             {!partnerSummaries.length && <div className="empty compact"><WalletCards /><span>Nenhum parceiro cadastrado.</span></div>}
           </div>
         </Dialog>
@@ -1424,7 +1436,7 @@ function App() {
         <Dialog title="Convidar novo cliente" subtitle="Envie pelo WhatsApp um cadastro individual, seguro e válido por 72 horas." close={() => { setModal(null); setPartnerInvite(null); setError(""); }}>
           <form className="dialog-form invite-dialog" onSubmit={(event) => void createPartnerInvite(event, partnerSummaries[0]?.id || 0)}>
             <div className="invite-explainer"><ShieldCheck /><div><strong>O cliente preenche pelo próprio celular</strong><small>RG ou CNH, comprovante de endereço e comprovante de renda são obrigatórios. O envio não aprova crédito automaticamente.</small></div></div>
-            <label>Fornecedor responsável<select name="partnerId" value={partnerSummaries[0]?.id || ""} disabled>{partnerSummaries.map((partner) => <option key={partner.id} value={partner.id}>{partner.name}</option>)}</select></label>
+            <label>Fornecedor responsável<select name="partnerId" defaultValue={partnerSummaries[0]?.id || ""} required>{partnerSummaries.map((partner) => <option key={partner.id} value={partner.id}>{partner.name}</option>)}</select></label>
             <label>WhatsApp do novo cliente<input name="phone" type="tel" inputMode="tel" placeholder="Ex.: 11999999999" required autoFocus /></label>
             {partnerInvite && <div className="invite-result"><span>Convite pronto</span><input readOnly value={partnerInvite.publicUrl} /><a href={partnerInvite.whatsappUrl} target="_blank" rel="noreferrer">Abrir WhatsApp e enviar agora</a></div>}
             {error && <div className="form-error">{error}</div>}
@@ -1466,7 +1478,7 @@ function App() {
               <div className="history-list">
                 {clients.map((client) => (
                   <article key={client.id}>
-                    <div><strong>{client.name}</strong><small>{client.phone || "Sem telefone"} · {client.contract_count} contrato(s) · indicador {client.behavior_score ?? 500}/1000</small></div>
+                    <div><strong>{client.name}</strong><small>{client.phone || "Sem telefone"} · {client.partner_names || "Sem parceiro vinculado"} · {client.contract_count} contrato(s) · indicador {client.behavior_score ?? 500}/1000</small></div>
                     <div className="payment-actions">
                       <button className="receipt-button" onClick={() => void openRiskProfile(client.id)}><ShieldCheck />Risco</button>
                       <button className="receipt-button" onClick={() => void openDocuments(client.id)}><FileCheck2 />Dossiê</button>
@@ -1605,6 +1617,7 @@ function App() {
                 ))}
               </select>
             </label>
+            <label>Credor / parceiro<select name="partnerId" required><option value="">Selecione...</option>{partnerSummaries.map((partner) => <option key={partner.id} value={partner.id}>{partner.name}</option>)}</select></label>
             <div className="form-row">
               <label>
                 Principal (R$)
