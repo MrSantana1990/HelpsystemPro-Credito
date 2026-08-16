@@ -49,6 +49,7 @@ import {
   PartnerInvite,
   ClientAccessLink,
   ContractActionRequest,
+  AlertsData,
   Settings as SystemSettings,
   User,
 } from "./api";
@@ -68,6 +69,7 @@ type Modal =
   | "partners"
   | "invite"
   | "clientRequests"
+  | "alerts"
   | "contract"
   | "payment"
   | "renegotiate"
@@ -360,6 +362,7 @@ function App() {
   const [partnerInvite, setPartnerInvite] = useState<PartnerInvite | null>(null);
   const [clientAccessLink, setClientAccessLink] = useState<ClientAccessLink | null>(null);
   const [actionRequests, setActionRequests] = useState<ContractActionRequest[]>([]);
+  const [alertsData, setAlertsData] = useState<AlertsData | null>(null);
   const [modal, setModal] = useState<Modal>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -387,19 +390,22 @@ function App() {
     }
     if (target === "partners" || target === "invite") setPartnerSummaries((await api.partnerSummary()).partners);
     if (target === "clientRequests") setActionRequests((await api.actionRequests()).requests);
+    if (target === "alerts") setAlertsData(await api.alerts());
     setModal(target);
   };
   const loadData = useCallback(async () => {
-    const [dash, clientData, contractData, settingsData] = await Promise.all([
+    const [dash, clientData, contractData, settingsData, alertData] = await Promise.all([
       api.dashboard(),
       api.clients(),
       api.contracts(),
       api.settings(),
+      api.alerts(),
     ]);
     setDashboard(dash);
     setClients(clientData.clients);
     setContracts(contractData.contracts);
     setSettings(settingsData.settings);
+    setAlertsData(alertData);
   }, []);
 
   useEffect(() => {
@@ -916,8 +922,9 @@ function App() {
             />
           </div>
           <div className="header-actions">
-            <button className="notification">
+            <button className="notification" onClick={() => void navigate("alerts")} aria-label="Abrir alertas de vencimento">
               <Bell size={20} />
+              {alertsData && alertsData.alerts.length > 0 && <span>{alertsData.alerts.length > 9 ? "9+" : alertsData.alerts.length}</span>}
             </button>
             <button
               className="invite-header-action"
@@ -1433,6 +1440,18 @@ function App() {
               {request.status === "pending" && <div className="payment-actions"><button className="receipt-button" disabled={busy} onClick={() => void decideActionRequest(request.id, "accepted")}>Aceitar</button><button className="reverse-button" disabled={busy} onClick={() => void decideActionRequest(request.id, "rejected")}>Recusar</button></div>}
             </article>) : <div className="empty compact"><Bell /><span>Nenhum pedido recebido.</span></div>}</div>
             {error && <div className="form-error">{error}</div>}
+          </div>
+        </Dialog>
+      )}
+      {modal === "alerts" && alertsData && (
+        <Dialog title="Central de vencimentos" subtitle="Atrasados e contratos que vencem nos próximos sete dias." close={() => setModal(null)}>
+          <div className="history-body alerts-center">
+            <div className="alerts-summary"><div className="danger"><span>Atrasados</span><strong>{alertsData.summary.overdue}</strong></div><div><span>Hoje</span><strong>{alertsData.summary.today}</strong></div><div><span>Até 3 dias</span><strong>{alertsData.summary.three_days}</strong></div><div><span>Até 7 dias</span><strong>{alertsData.summary.seven_days}</strong></div></div>
+            <div className="alert-cards">{alertsData.alerts.length ? alertsData.alerts.map((alert) => <article className={`alert-card ${alert.urgency}`} key={alert.contract_id}>
+              <div className="alert-card-top"><div><span>{alert.urgency === "overdue" ? `${Math.abs(alert.days_until_due)} dia(s) em atraso` : alert.urgency === "today" ? "Vence hoje" : `Vence em ${alert.days_until_due} dia(s)`}</span><strong>{alert.client_name}</strong><small>Contrato #{String(alert.contract_id).padStart(4, "0")} · {dateBr(alert.due_date)}</small></div><strong>{money(alert.total_due_cents)}</strong></div>
+              <div className="alert-actions"><button onClick={() => openPayment(alert.contract_id, "payoff")}><CheckCircle2 />Quitar</button><button onClick={() => openPayment(alert.contract_id, "interest")}><CircleDollarSign />Juros</button>{alert.whatsapp_url ? <a href={alert.whatsapp_url} target="_blank" rel="noreferrer"><Bell />Lembrar no WhatsApp</a> : <span>Cadastre o WhatsApp do cliente</span>}</div>
+            </article>) : <div className="empty compact"><CheckCircle2 /><strong>Nenhum vencimento urgente</strong><span>Não há contratos vencidos ou vencendo em até sete dias.</span></div>}</div>
+            <div className="alert-automation-note"><ShieldCheck /><span><strong>Envio sob seu controle.</strong> A mensagem só é aberta quando você toca no botão. A automação depende de um provedor autorizado.</span></div>
           </div>
         </Dialog>
       )}

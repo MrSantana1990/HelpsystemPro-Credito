@@ -244,6 +244,12 @@ export interface ContractActionRequest {
   decision_note?: string;
   created_at: string;
 }
+export interface ContractAlert {
+  contract_id: number; client_id: number; client_name: string; phone?: string; due_date: string;
+  principal_due_cents: number; interest_due_cents: number; fee_due_cents: number; total_due_cents: number;
+  days_until_due: number; urgency: "overdue" | "today" | "three_days" | "seven_days"; whatsapp_url?: string;
+}
+export interface AlertsData { summary: { overdue: number; today: number; three_days: number; seven_days: number }; alerts: ContractAlert[]; }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -324,6 +330,7 @@ export const api = {
   clientPortalLoanRequest: (token: string, data: object) => request<{ id: number; status: string }>(`/client-portal/${token}/loan-requests`, { method: "POST", body: JSON.stringify(data) }),
   clientPortalActionRequest: (token: string, data: object) => request<{ id: number; status: string }>(`/client-portal/${token}/action-requests`, { method: "POST", body: JSON.stringify(data) }),
   actionRequests: () => request<{ requests: ContractActionRequest[] }>("/action-requests"),
+  alerts: () => request<AlertsData>("/alerts"),
   decideActionRequest: (id: number, data: object) => request<{ id: number; status: string }>(`/action-requests/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   createContract: (data: object) =>
     request<{
