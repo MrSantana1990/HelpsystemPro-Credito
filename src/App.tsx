@@ -930,7 +930,7 @@ function App() {
                               <div>
                                 <strong>{contract.client_name}</strong>
                                 <small>
-                                  #{String(contract.id).padStart(4, "0")}
+                                  #{contract.legacy_reference || String(contract.id).padStart(4, "0")}
                                 </small>
                               </div>
                             </div>
@@ -1150,7 +1150,7 @@ function App() {
             <div className="history-list">
               {contracts.length ? contracts.map((contract) => (
                 <article key={contract.id}>
-                  <div><strong>{contract.client_name} · #{String(contract.id).padStart(4, "0")}</strong><small>{dateBr(contract.due_date)} · {money(contract.balance_principal_cents)} · {contract.status}</small></div>
+                  <div><strong>{contract.client_name} · #{contract.legacy_reference || String(contract.id).padStart(4, "0")}</strong><small>{dateBr(contract.due_date)} · {money(contract.balance_principal_cents)} · {contract.status}</small></div>
                   <button className="receipt-button" onClick={() => openHistory(contract.id)}><Eye />Ver</button>
                 </article>
               )) : <div className="empty compact"><FileCheck2 /><span>Nenhum contrato cadastrado.</span></div>}
