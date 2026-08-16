@@ -16,6 +16,8 @@ export interface Client {
   address?: string;
   preferred_payment_window?: string;
   credit_analysis_consent_at?: string;
+  income_type?: string;
+  declared_income_cents?: number;
   contract_count: number;
   credit_score?: number;
   risk_band?: string;
@@ -190,6 +192,18 @@ export interface EligiblePaidContract {
   principal_cents: number;
   paid_at: string;
 }
+export interface ClientDocument {
+  id: number;
+  client_id: number;
+  document_type: "identidade" | "endereco" | "renda" | "outro";
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  status: "pending" | "verified" | "rejected";
+  review_note?: string;
+  expires_on?: string;
+  created_at: string;
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -247,6 +261,15 @@ export const api = {
       body: JSON.stringify(data),
     }),
   riskProfile: (id: number) => request<RiskProfile>(`/clients/${id}/risk-profile`),
+  clientDocuments: (id: number) => request<{ documents: ClientDocument[] }>(`/clients/${id}/documents`),
+  uploadClientDocument: async (id: number, form: FormData) => {
+    const response = await fetch(`/api/clients/${id}/documents`, { method: "POST", body: form, credentials: "same-origin" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Não foi possível enviar o documento.");
+    return payload as { id: number; status: string };
+  },
+  reviewClientDocument: (id: number, status: "verified" | "rejected", reviewNote = "") =>
+    request<{ id: number; status: string }>(`/client-documents/${id}`, { method: "PATCH", body: JSON.stringify({ status, reviewNote }) }),
   createContract: (data: object) =>
     request<{
       id: number;

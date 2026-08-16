@@ -27,7 +27,7 @@ async function request(path, options = {}) {
   const response = await fetch(`${base}${path}`, {
     ...options,
     headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(typeof options.body === "string" ? { "Content-Type": "application/json" } : {}),
       ...(cookie ? { Cookie: cookie } : {}),
       ...options.headers,
     },
@@ -47,6 +47,7 @@ beforeAll(async () => {
       PORT: String(port),
       HOST: "127.0.0.1",
       DATA_DIRECTORY: dataDirectory,
+      APP_ENCRYPTION_KEY: "a".repeat(64),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -106,6 +107,13 @@ describe("API operacional", () => {
     const initialRisk = await request(`/clients/${client.id}/risk-profile`);
     expect(initialRisk.behavior).toMatchObject({ score: expect.any(Number), riskBand: expect.any(String) });
     expect(initialRisk.disclaimer).toContain("revisão humana");
+    const documentForm = new FormData();
+    documentForm.append("documentType", "identidade");
+    documentForm.append("file", new Blob([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])], { type: "image/png" }), "identidade.png");
+    const uploadedDocument = await request(`/clients/${client.id}/documents`, { method: "POST", body: documentForm });
+    expect(uploadedDocument).toMatchObject({ status: "pending" });
+    expect(await request(`/client-documents/${uploadedDocument.id}`, { method: "PATCH", body: JSON.stringify({ status: "verified" }) })).toMatchObject({ status: "verified" });
+    expect((await request(`/clients/${client.id}/documents`)).documents[0]).toMatchObject({ document_type: "identidade", status: "verified" });
     const assessment = await request(`/clients/${client.id}/credit-assessments`, {
       method: "POST",
       body: JSON.stringify({

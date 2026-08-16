@@ -60,6 +60,8 @@ export function calculateBehaviorScore(client, history = {}) {
   const onTime = Number(history.onTimePayments || 0);
   const late = Number(history.latePayments || 0);
   const totalPrincipal = Number(history.paidPrincipalCents || 0);
+  const verifiedIncomeDocuments = Number(history.verifiedIncomeDocuments || 0);
+  const declaredIncome = Number(client.declared_income_cents || 0);
   const profileFields = [client.document, client.phone, client.email].filter(Boolean).length;
   const createdAt = Date.parse(client.created_at || new Date().toISOString());
   const tenureDays = Math.max(0, Math.floor((Date.now() - createdAt) / 86_400_000));
@@ -72,12 +74,16 @@ export function calculateBehaviorScore(client, history = {}) {
   score -= Math.min(180, renegotiated * 45);
   score -= Math.min(120, late * 30);
   score -= Math.min(75, review * 25);
+  if (verifiedIncomeDocuments && declaredIncome > 0) {
+    const incomeWeights = { clt: 50, autonomo: 30, beneficio: 60, empresario: 35, outro: 20 };
+    score += incomeWeights[client.income_type] || 20;
+  }
   score = Math.round(clamp(score, 0, 1000));
   const riskBand = score >= 750 ? "baixo" : score >= 600 ? "moderado" : score >= 450 ? "alto" : "muito_alto";
   const averagePaidPrincipalCents = paid ? Math.round(totalPrincipal / paid) : 0;
-  const recommendedLimitCents = paid
-    ? Math.max(0, Math.round(averagePaidPrincipalCents * clamp(score / 700, 0.4, 1.3)))
-    : 0;
+  const historyLimit = paid ? averagePaidPrincipalCents * clamp(score / 700, 0.4, 1.3) : 0;
+  const verifiedIncomeLimit = verifiedIncomeDocuments && declaredIncome ? declaredIncome * (client.income_type === "beneficio" || client.income_type === "clt" ? 0.35 : 0.25) : 0;
+  const recommendedLimitCents = Math.max(0, Math.round(historyLimit && verifiedIncomeLimit ? Math.min(historyLimit, verifiedIncomeLimit) : historyLimit || verifiedIncomeLimit));
   const reasons = [
     profileFields === 3 ? "Cadastro essencial completo." : `${3 - profileFields} dado(s) essencial(is) ainda não informado(s).`,
     tenureDays < 30 ? "Relacionamento recente, com menos de 30 dias." : `${tenureDays} dias de relacionamento registrados.`,
@@ -86,6 +92,7 @@ export function calculateBehaviorScore(client, history = {}) {
     overdue ? `${overdue} contrato(s) vencido(s) reduzem a nota.` : "Nenhum contrato aberto vencido.",
     renegotiated ? `${renegotiated} renegociação(ões) considerada(s).` : "Nenhuma renegociação registrada.",
     review ? `${review} contrato(s) legado(s) aguardam revisão.` : "Nenhuma pendência de revisão.",
+    verifiedIncomeDocuments ? `Renda ${client.income_type || "declarada"} possui comprovante verificado.` : "Renda ainda não possui comprovante verificado.",
   ];
-  return { score, riskBand, recommendedLimitCents, reasons, factors: { paid, overdue, renegotiated, review, onTime, late, tenureDays, profileFields } };
+  return { score, riskBand, recommendedLimitCents, reasons, factors: { paid, overdue, renegotiated, review, onTime, late, tenureDays, profileFields, verifiedIncomeDocuments } };
 }
