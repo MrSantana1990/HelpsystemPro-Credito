@@ -822,7 +822,7 @@ function App() {
                     <tbody>
                       {dueContracts.map((contract) => (
                         <tr key={contract.id}>
-                          <td>
+                          <td data-label="Cliente">
                             <div className="client">
                               <span>
                                 {contract.client_name.slice(0, 2).toUpperCase()}
@@ -835,12 +835,12 @@ function App() {
                               </div>
                             </div>
                           </td>
-                          <td>
+                          <td data-label="Vencimento">
                             <strong>{dateBr(contract.due_date)}</strong>
                           </td>
-                          <td>{money(contract.principal_due)}</td>
-                          <td>{money(contract.interest_due)}</td>
-                          <td>
+                          <td data-label="Principal">{money(contract.principal_due)}</td>
+                          <td data-label="Juros">{money(contract.interest_due)}</td>
+                          <td data-label="Total do ciclo">
                             <strong>
                               {money(
                                 contract.principal_due +
@@ -849,7 +849,7 @@ function App() {
                               )}
                             </strong>
                           </td>
-                          <td>
+                          <td data-label="Histórico">
                             <button
                               className="more"
                               onClick={() => openHistory(contract.id)}
@@ -1018,6 +1018,32 @@ function App() {
           </div>
         </section>
       </main>
+      <nav className="mobile-bottom-nav" aria-label="Navegação principal">
+        <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+          <LayoutDashboard />
+          <span>Início</span>
+        </button>
+        <button onClick={() => setModal("clients")}>
+          <Users />
+          <span>Clientes</span>
+        </button>
+        <button
+          className="mobile-new-action"
+          onClick={() => setModal(clients.length ? "contract" : "client")}
+          aria-label="Novo empréstimo"
+        >
+          <Plus />
+          <span>Novo</span>
+        </button>
+        <button onClick={() => setModal("import")}>
+          <FileUp />
+          <span>Importar</span>
+        </button>
+        <button onClick={() => setMenuOpen(true)}>
+          <Menu />
+          <span>Mais</span>
+        </button>
+      </nav>
       {modal === "clients" && (
         <Dialog
           title="Clientes"
