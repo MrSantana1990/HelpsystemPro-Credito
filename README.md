@@ -4,206 +4,130 @@
 
 ### Gestão de crédito simples para operar. Poderosa para crescer.
 
-Uma plataforma moderna para organizar clientes, contratos, pagamentos, renovações, cobranças e comprovantes — com histórico preservado e decisões claras.
+Clientes, contratos, pagamentos, renovações, documentos e decisões em uma experiência feita primeiro para celular.
 
-[![Status](https://img.shields.io/badge/status-MVP%20operacional-17d7d1?style=for-the-badge)](#estado-atual)
-[![Versão](https://img.shields.io/badge/vers%C3%A3o-0.2.0-7c6cf2?style=for-the-badge)](#roadmap)
-[![Interface](https://img.shields.io/badge/interface-responsiva-18b892?style=for-the-badge)](#demonstra%C3%A7%C3%A3o-local)
-[![Privacidade](https://img.shields.io/badge/dados-demonstrativos-f59e67?style=for-the-badge)](#seguran%C3%A7a-e-privacidade)
+[![Produção](https://img.shields.io/badge/produção-online-22c55e?style=for-the-badge)](https://credito.helpsystempro.site)
+[![Status](https://img.shields.io/badge/status-MVP_operacional-22d3d3?style=for-the-badge)](#-estado-atual)
+[![Interface](https://img.shields.io/badge/mobile--first-PWA-8b5cf6?style=for-the-badge)](#-experiência)
+[![Segurança](https://img.shields.io/badge/dados-protegidos-0f766e?style=for-the-badge)](#-segurança-e-privacidade)
 
-> **Visão do produto:** transformar uma operação real controlada em planilha em um sistema confiável, agradável e auditável, sem perder a história que originou o projeto.
+[Abrir sistema](https://credito.helpsystempro.site) · [Visão](docs/VISAO-DO-PRODUTO.md) · [Regras](docs/REGRAS-DE-NEGOCIO.md) · [Operação](docs/OPERACAO.md)
 
 </div>
 
 ---
 
-## ✨ A proposta
+## ✦ Propósito
 
-O HelpSystemPro Crédito nasce de uma necessidade prática: acompanhar empréstimos de 30 dias sem depender de cálculos manuais e sem perder o histórico quando ocorre pagamento de juros, renovação ou renegociação.
+Transformar uma operação real controlada em planilha em um sistema confiável, auditável e agradável — preservando integralmente a base e a história que deram origem ao produto.
 
-Para o usuário, a rotina deve caber em poucas ações:
+## ✅ Estado atual
 
-1. cadastrar o cliente;
-2. abrir o empréstimo;
-3. registrar o que foi recebido;
-4. escolher entre quitar, amortizar, renovar ou renegociar;
-5. confirmar o resumo calculado pelo sistema.
+- administrador inicial e login protegido;
+- gestão de clientes, contratos e ciclos;
+- pagamentos, amortizações e quitações;
+- renovação mediante pagamento de juros;
+- renegociação vinculando contrato anterior e novo;
+- multas, estornos e histórico auditável;
+- recibos com código de conferência;
+- importação assistida da planilha e bloqueio de duplicidade;
+- anexos criptografados e portal do cliente;
+- score interno explicável e limite recomendado;
+- solicitações após quitação individual;
+- vencimentos quinzenais no dia 15 ou final do mês;
+- backup verificado e restauração;
+- interface responsiva para celular.
 
-Por trás dessa simplicidade, o produto manterá lançamentos financeiros, vínculos entre contratos, comprovantes, auditoria, permissões e automações.
-
-## 🖥️ Estado atual
-
-- configuração do primeiro administrador e login protegido;
-- clientes, contratos, ciclos, pagamentos, amortizações e quitações;
-- renovação por pagamento de encargos e juros, preservando o principal;
-- renegociação com vínculo entre o contrato anterior e o novo;
-- multa diária configurável, histórico completo e estorno controlado;
-- recibo imprimível com código de conferência;
-- importação assistida da planilha, com prévia, revisão e bloqueio de duplicidade;
-- auditoria, backup verificado e restauração offline;
-- dashboard responsivo para computador e celular;
-- menus operacionais de clientes, contratos, pagamentos, renovações e comprovantes;
-- score interno explicável, com faixa de risco e limite recomendado por cliente;
-- solicitações de novo empréstimo liberadas por quitação individual, com preferência de pagamento no dia 15 ou no final do mês;
-- Docker, documentação operacional e validação automática no GitHub.
-
-> O núcleo é operacional para uma empresa e uma instância. Antes de cadastrar dados reais na internet, conclua o [`checklist de produção`](docs/CHECKLIST-PRODUCAO.md), faça a validação jurídica e mantenha o acesso privado ou protegido por uma segunda camada de autenticação.
-
-## 🧭 Regra principal de experiência
+## 🧭 Experiência
 
 ### Simples na frente, rigoroso por trás
 
-Ao receber apenas os juros, por exemplo, o operador verá uma confirmação parecida com esta:
+Quando o cliente paga somente os juros:
 
-```text
-Recebimento: R$ 300,00
-Aplicação: juros do ciclo
-Principal preservado: R$ 1.000,00
-Novo vencimento: +30 dias
-```
+    Recebimento: R$ 300,00
+    Aplicação: juros do ciclo
+    Principal preservado: R$ 1.000,00
+    Novo vencimento: +30 dias
 
-Ao confirmar, o sistema registra o pagamento, encerra o ciclo anterior, abre o próximo ciclo e liga os dois registros. Nenhum histórico é apagado.
+O sistema encerra o ciclo anterior, cria o próximo e liga os registros. Nada é apagado.
 
-## 🔄 Regras de negócio fundamentais
+## 🔄 Regras essenciais
 
-| Operação | O que acontece | Resultado esperado |
+| Operação | Tratamento | Resultado |
 |---|---|---|
-| Somente juros | O juro do ciclo é pago | Principal permanece e um novo ciclo de 30 dias é criado |
-| Amortização parcial | Parte do pagamento reduz o principal | Próximo ciclo usa o principal remanescente |
-| Quitação | Juros, encargos e principal são liquidados | Saldo zero e contrato encerrado |
-| Renegociação | Um valor é recebido e o restante recebe novas condições | Contrato anterior é encerrado e vinculado ao novo |
-| Recibo emitido | O sistema gera uma via imprimível | Código e dados do lançamento ficam vinculados ao histórico |
+| **Somente juros** | Recebe o juro do ciclo | Principal preservado e novo ciclo |
+| **Amortização** | Reduz parte do principal | Próximo ciclo sobre saldo menor |
+| **Quitação** | Liquida encargos e principal | Contrato encerrado |
+| **Renegociação** | Recalcula saldo e condições | Novo contrato ligado ao anterior |
+| **Estorno** | Reverte de forma controlada | Histórico e auditoria preservados |
 
-A especificação detalhada está em [`docs/REGRAS-DE-NEGOCIO.md`](docs/REGRAS-DE-NEGOCIO.md).
+## 👥 Dois lados da plataforma
 
-## 🧱 Produto e evolução
+| Credor/fornecedor | Cliente/tomador |
+|---|---|
+| Carteira, capital e lucro | Contratos e vencimentos próprios |
+| Risco, recorrência e margem | Solicitação de novo empréstimo |
+| Convites de cadastro | Envio seguro de documentos |
+| Aprovação e limites | Recibos e comprovantes |
+| Cobrança e alertas | Atualização cadastral |
 
-```mermaid
-flowchart LR
-    C[Clientes] --> K[Contratos]
-    K --> P[Pagamentos]
-    P --> R[Renovações]
-    P --> N[Renegociações]
-    P --> X[Comprovantes]
-    K --> A[Avisos e cobranças]
-    K --> D[Dashboard]
-    C --> Q[Avaliação de risco]
-```
+O cadastro se adapta à origem de renda — CLT, autônomo, benefício, MEI/empresa ou outra — solicitando os comprovantes adequados.
 
-- **Clientes:** cadastro, documentos, consentimentos e histórico.
-- **Contratos:** valores, taxa, prazo, vencimento e situação.
-- **Pagamentos:** distribuição explícita entre multa, juros e principal.
-- **Renovações:** ciclos vinculados sem apagar o contrato original.
-- **Cobrança:** lembretes por WhatsApp, e-mail, SMS ou push.
-- **Comprovantes e dossiê:** recibo imprimível e documentos criptografados já disponíveis; PDF assinado é evolução.
-- **Visão do credor:** capital aplicado e em aberto, lucro realizado, margem, recorrência e risco da carteira.
-- **Múltiplos credores:** parceiros cadastráveis, com contratos, convites, clientes vinculados e resultados separados.
-- **Entrada de clientes:** convite seguro por WhatsApp, cadastro mobile e envio obrigatório de identidade, endereço e renda.
-- **Cadastro por renda:** campos e comprovações específicos para CLT, autônomo, benefício, MEI/empresa ou outra origem.
-- **Área do tomador:** acesso individual aos próprios contratos, vencimentos e solicitações após quitação.
-- **Central de vencimentos:** atrasados e próximos sete dias, com valores atualizados e lembrete individual pelo WhatsApp.
-- **Risco:** score interno explicável e limite recomendado já disponíveis; consulta a bureaus externos fica para uma integração futura.
-- **Gestão:** relatórios, fluxo de caixa, auditoria e múltiplas empresas.
+## 🗺️ Roteiro
 
-## 🚀 Demonstração local
+| Fase | Entrega | Situação |
+|---:|---|:---:|
+| 1 | Visão, regras e interface | ✅ |
+| 2 | Clientes, contratos e pagamentos | ✅ |
+| 3 | Renovações, recibos, importação e backup | ✅ |
+| 4 | Documentos, portal e avisos | 🟡 |
+| 5 | Pix e conciliação por parceiro autorizado | ⚪ |
+| 6 | Multiempresa e administração SaaS | ⚪ |
+| 7 | Score comportamental explicável | ✅ |
+| 8 | Bureau, garantias e seguros | ⚪ |
 
-### Requisitos
+## 🧱 Fundação técnica
 
-- Node.js 24 ou superior;
-- npm 10 ou superior.
+React · TypeScript · Vite · Node.js · Express · SQLite · Docker
 
-### Executar
+Valores financeiros são armazenados em centavos inteiros para evitar erros de arredondamento.
 
-```bash
-npm install
-npm run build
-npm start
-```
+## 🚀 Desenvolvimento
 
-Acesse `http://localhost:8091`. No Windows, também é possível executar `INICIAR_SISTEMA.bat`.
+    npm install
+    npm run typecheck
+    npm test
+    npm run build
+    npm start
 
-### Validar a compilação
-
-```bash
-npm run build
-```
-
-## 🗺️ Roadmap
-
-| Etapa | Objetivo | Situação |
-|---:|---|---|
-| 1 | Visão, regras, interface e documentação | ✅ Entregue |
-| 2 | Banco, clientes, contratos, pagamentos e auditoria | ✅ Entregue |
-| 3 | Renovação, renegociação, recibos, importação e backup | ✅ Entregue |
-| 4A | Anexos criptografados e portal do cliente | ✅ Entregue no código · publicação pendente |
-| 4B | Central interna e lembretes manuais pelo WhatsApp | ✅ Entregue no código · publicação pendente |
-| 4C | Avisos automáticos e comprovantes de entrega | 🟡 Próxima fase |
-| 5 | Pix por parceiro autorizado e conciliação | ⚪ Planejada |
-| 6 | Multiempresa, planos e administração SaaS | ⚪ Planejada |
-| 7 | Score interno comportamental e análise explicável | ✅ Entregue |
-| 8 | Bureau externo, garantias e seguros | ⚪ Futura |
-
-Consulte [`docs/VISAO-DO-PRODUTO.md`](docs/VISAO-DO-PRODUTO.md) para o detalhamento.
+Acesse http://localhost:8091 ou execute INICIAR_SISTEMA.bat no Windows.
 
 ## 🛡️ Segurança e privacidade
 
-O produto será construído com privacidade desde a concepção:
-
-- isolamento dos dados por empresa;
-- autenticação em duas etapas na camada de acesso da implantação;
-- permissões por função em fase futura;
-- trilha de auditoria imutável;
-- criptografia em trânsito e em repouso;
+- trilha de auditoria;
+- documentos criptografados;
+- HTTPS e camada adicional de acesso;
 - backups testados;
-- consentimentos e direitos do titular;
-- política de retenção de dados;
-- nenhuma senha ou documento pessoal no repositório.
+- consentimento e retenção de dados;
+- nenhuma senha ou documento no Git;
+- integrações financeiras somente por parceiros autorizados.
 
-O software será inicialmente posicionado como uma ferramenta de gestão. Integrações de pagamento, oferta de crédito, seguros e atividades reguladas dependerão de parceiros autorizados e validação jurídica específica.
-
-## 🧰 Fundação técnica
-
-O sistema utiliza **React**, **TypeScript**, **Vite**, **Node.js**, **Express** e **SQLite**. A arquitetura de produção será definida por etapas para evitar complexidade prematura, mas já está orientada a:
-
-- aplicação web responsiva/PWA;
-- API segura;
-- banco relacional;
-- armazenamento protegido de documentos;
-- filas para notificações;
-- eventos financeiros auditáveis;
-- integrações desacopladas.
+Antes de dados reais, siga o [checklist de produção](docs/CHECKLIST-PRODUCAO.md) e faça validação jurídica e de LGPD.
 
 ## 📚 Documentação
 
-- [`Visão do produto`](docs/VISAO-DO-PRODUTO.md)
-- [`Regras de negócio`](docs/REGRAS-DE-NEGOCIO.md)
-- [`Arquitetura inicial`](docs/ARQUITETURA.md)
-- [`Roadmap`](docs/ROADMAP.md)
-- [`Roteiro para apresentação`](docs/APRESENTACAO.md)
-- [`Manual de operação`](docs/OPERACAO.md)
-- [`Segurança e privacidade`](docs/SEGURANCA.md)
-- [`Implantação`](docs/IMPLANTACAO.md)
-- [`Checklist de produção`](docs/CHECKLIST-PRODUCAO.md)
+| Documento | Conteúdo |
+|---|---|
+| [Visão do produto](docs/VISAO-DO-PRODUTO.md) | Produto, usuários e evolução |
+| [Regras de negócio](docs/REGRAS-DE-NEGOCIO.md) | Cálculos e eventos financeiros |
+| [Arquitetura](docs/ARQUITETURA.md) | Componentes e dados |
+| [Operação](docs/OPERACAO.md) | Manual de uso |
+| [Segurança](docs/SEGURANCA.md) | Controles e privacidade |
+| [Implantação](docs/IMPLANTACAO.md) | Execução e infraestrutura |
 
-## ✅ Qualidade automatizada
+## ⚖️ Uso responsável
 
-O núcleo financeiro inicial usa valores em **centavos inteiros**, evitando erros comuns de arredondamento com dinheiro. A suíte cobre cálculo de juros, distribuição de pagamentos, excedentes, renovação e datas.
-
-```bash
-npm run typecheck
-npm test
-npm run build
-```
-
-O GitHub Actions executa essas três verificações automaticamente em toda alteração enviada à `main` ou proposta por pull request.
-
-### Atalho no Windows
-
-Execute `INICIAR_SISTEMA.bat` para instalar o necessário na primeira utilização e abrir o sistema no navegador.
-
-## 📄 Uso e propriedade
-
-Este repositório público não concede licença de cópia, redistribuição ou exploração comercial. Consulte [`LICENSE`](LICENSE). Para oferecer crédito, cobrar encargos, integrar Pix, seguros ou análise de risco, obtenha orientação jurídica e use parceiros devidamente autorizados.
+O software é uma ferramenta de gestão e não substitui análise jurídica, contábil ou regulatória. Oferta de crédito, Pix, seguros e consultas externas dependem de parceiros autorizados. Consulte [LICENSE](LICENSE).
 
 ---
 
